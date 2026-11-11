@@ -38,6 +38,23 @@ function calendarDay(when: Date): string {
   return `${when.getFullYear()}-${month}-${day}`;
 }
 
+/**
+ * How many whole days of the window were still to come on a given day:
+ * 0 on the last day itself, and never negative.
+ */
+export function daysLeftInWindow(purchasedAt: string, on: Date): number {
+  const bought = new Date(purchasedAt);
+  const lastDay = new Date(
+    bought.getFullYear(),
+    bought.getMonth(),
+    bought.getDate() + REFUND_WINDOW_DAYS
+  );
+  const day = new Date(on.getFullYear(), on.getMonth(), on.getDate());
+  // Round, because a daylight-saving change makes one day 23 or 25 hours.
+  const days = Math.round((lastDay.getTime() - day.getTime()) / 86_400_000);
+  return Math.max(0, days);
+}
+
 export function decideRefundEligibility(
   facts: RefundFacts,
   today: Date

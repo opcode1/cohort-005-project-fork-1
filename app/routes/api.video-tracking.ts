@@ -4,7 +4,9 @@ import type { Route } from "./+types/api.video-tracking";
 import { getCurrentUserId } from "~/lib/session";
 import { parseJsonBody } from "~/lib/validation";
 import { db } from "~/db";
-import { videoWatchEvents } from "~/db/schema";
+import { lessons, modules, videoWatchEvents } from "~/db/schema";
+import { eq } from "drizzle-orm";
+import { requireContentAccess } from "~/lib/access.server";
 
 const videoTrackingSchema = z.object({
   lessonId: z.number(),
@@ -25,6 +27,22 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const { lessonId, eventType, positionSeconds } = parsed.data;
+
+  // Only someone who can view the course records watch time. A learner whose
+  // Refund was Approved has lost access, so a video still open in their
+  // browser stops counting.
+  const lesson = db
+    .select({ courseId: modules.courseId })
+    .from(lessons)
+    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    .where(eq(lessons.id, lessonId))
+    .get();
+
+  if (!lesson) {
+    throw data("Lesson not found", { status: 404 });
+  }
+
+  await requireContentAccess(request, lesson.courseId);
 
   db
     .insert(videoWatchEvents)

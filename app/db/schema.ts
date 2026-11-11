@@ -242,6 +242,9 @@ export const refundRequests = sqliteTable(
       .default(RefundRequestStatus.Pending),
     // The learner's own words, in the box on the course page.
     reason: text("reason").notNull(),
+    // The Admin's explanation to the learner. Always set when Declined;
+    // null otherwise.
+    declineNote: text("decline_note"),
     // The Refund: null until the request is approved — a declined request returns nothing.
     amountRefunded: integer("amount_refunded"),
     requestedAt: text("requested_at")

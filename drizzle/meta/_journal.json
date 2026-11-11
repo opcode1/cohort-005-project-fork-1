@@ -78,6 +78,13 @@
       "when": 1794301078169,
       "tag": "0010_sticky_marvex",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1794393462001,
+      "tag": "0011_steady_vulture",
+      "breakpoints": true
     }
   ]
 }

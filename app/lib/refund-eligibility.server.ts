@@ -54,21 +54,11 @@ export function getRefundEligibility(
     return { eligible: false, reason: "not-purchased" };
   }
 
-  const lessonIds = database
-    .select({ id: lessons.id })
-    .from(lessons)
-    .innerJoin(modules, eq(lessons.moduleId, modules.id))
-    .where(eq(modules.courseId, courseId))
-    .all()
-    .map((row) => row.id);
-
   const decision = decideRefundEligibility(
     {
       purchasedAt: purchase.createdAt,
       amountPaid: purchase.amountPaid,
-      secondsWatched: getSecondsWatched(database, userId, lessonIds),
-      completedLessons: getCompletedLessonCount(database, userId, lessonIds),
-      totalLessons: lessonIds.length,
+      ...getCourseActivity(userId, courseId, database),
       isClaimedTeamSeat: hasClaimedSeat(database, purchase.id),
       hasPendingRequest: hasPendingRequest(database, purchase.id),
     },
@@ -78,6 +68,30 @@ export function getRefundEligibility(
   return decision.eligible
     ? { ...decision, purchaseId: purchase.id }
     : decision;
+}
+
+/**
+ * How much of the course this learner has watched and completed, under any
+ * purchase of it. The refund limits are measured against this.
+ */
+export function getCourseActivity(
+  userId: number,
+  courseId: number,
+  database: Database = db
+) {
+  const lessonIds = database
+    .select({ id: lessons.id })
+    .from(lessons)
+    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    .where(eq(modules.courseId, courseId))
+    .all()
+    .map((row) => row.id);
+
+  return {
+    secondsWatched: getSecondsWatched(database, userId, lessonIds),
+    completedLessons: getCompletedLessonCount(database, userId, lessonIds),
+    totalLessons: lessonIds.length,
+  };
 }
 
 // Watch time is the furthest point reached in each lesson, added up — not
