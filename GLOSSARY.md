@@ -22,5 +22,5 @@ The state of a Refund Request that has been turned down; no money is returned an
 _Avoid_: Rejected, Denied
 
 **Refund**:
-The money returned to the learner's card when a Refund Request is Approved. A Refund is always the full amount the course is refundable for, never part of it.
+The money returned to the learner's card when a Refund Request is Approved. A Refund is always exactly what the learner paid for the course, never part of it and never more, even if the course price has changed since.
 _Avoid_: Reversal, Chargeback, partial refund
