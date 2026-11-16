@@ -916,7 +916,8 @@ export async function action({ params, request }: Route.ActionArgs) {
             askerName: asker?.name ?? "A student",
             courseTitle: course.title,
             lessonTitle: lesson?.title ?? "a lesson",
-            url: new URL(request.url).pathname,
+            // Actions are posted to "<page>.data"; link to the page itself.
+            url: new URL(request.url).pathname.replace(/\.data$/, ""),
             commentId: (created as { id: number }).id,
           });
         }
