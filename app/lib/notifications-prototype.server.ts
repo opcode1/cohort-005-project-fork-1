@@ -50,7 +50,8 @@ export async function prototypeNotifyQuestionAsked(input: {
         url: input.url,
       },
     },
-    { idempotency_key: `question-asked-${input.commentId}` }
+    // The comment id alone repeats after a reseed, so add when it was sent.
+    { idempotency_key: `question-asked-${input.commentId}-${Date.now()}` }
   );
   try {
     const res = await ss.workflows.trigger(req);
