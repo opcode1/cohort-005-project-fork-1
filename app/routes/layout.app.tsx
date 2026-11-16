@@ -1,4 +1,14 @@
 import { Outlet } from "react-router";
+import { lazy, Suspense, useEffect, useState } from "react";
+import {
+  getSuprSendClientConfig,
+  prototypeDistinctId,
+} from "~/lib/notifications-prototype.server";
+
+// PROTOTYPE: Notification Feed variants, client-only (SuprSend needs window).
+const NotificationFeedPrototype = lazy(
+  () => import("~/components/notification-feed-prototype.client")
+);
 import type { Route } from "./+types/layout.app";
 import { Sidebar } from "~/components/sidebar";
 import { DevUI } from "~/components/dev-ui";
@@ -213,6 +223,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     countryTierInfo,
     countries: COUNTRIES,
     isTeamAdmin: currentUserId ? isTeamAdmin(currentUserId) : false,
+    suprsend: currentUser
+      ? { ...getSuprSendClientConfig(), distinctId: prototypeDistinctId(currentUser.id) }
+      : null,
   };
 }
 
@@ -225,7 +238,10 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
     countryTierInfo,
     countries,
     isTeamAdmin: userIsTeamAdmin,
+    suprsend,
   } = loaderData;
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -244,6 +260,17 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
         countryTierInfo={countryTierInfo}
         countries={countries}
       />
+      {hydrated && currentUser && suprsend?.publicApiKey && (
+        <Suspense fallback={null}>
+          <NotificationFeedPrototype
+            publicApiKey={suprsend.publicApiKey}
+            vapidKey={suprsend.vapidKey}
+            distinctId={suprsend.distinctId}
+            userName={currentUser.name}
+            role={userIsTeamAdmin ? `${currentUser.role} + Team Admin` : currentUser.role}
+          />
+        </Suspense>
+      )}
       <Toaster position="bottom-right" richColors closeButton />
     </div>
   );

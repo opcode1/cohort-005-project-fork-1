@@ -55,6 +55,7 @@ import { data, isRouteErrorResponse } from "react-router";
 import { z } from "zod";
 import { COUNTRIES } from "~/lib/ppp";
 import { parseFormData, parseParams } from "~/lib/validation";
+import { prototypeNotifyQuestionAsked } from "~/lib/notifications-prototype.server";
 
 const lessonParamsSchema = z.object({
   slug: z.string().min(1),
@@ -900,12 +901,25 @@ export async function action({ params, request }: Route.ActionArgs) {
         if (!parsed.success) {
           return { ok: false, error: "Enter a comment before posting." };
         }
-        createComment(
+        const created = createComment(
           currentUserId,
           lessonId,
           parsed.data.parentId ?? null,
           parsed.data.body
         );
+        // PROTOTYPE: "Question asked" -> course Instructor (Feed + push).
+        if (!parsed.data.parentId && course.instructorId !== currentUserId) {
+          const asker = getUserById(currentUserId);
+          const lesson = getLessonById(lessonId);
+          await prototypeNotifyQuestionAsked({
+            instructorId: course.instructorId,
+            askerName: asker?.name ?? "A student",
+            courseTitle: course.title,
+            lessonTitle: lesson?.title ?? "a lesson",
+            url: new URL(request.url).pathname,
+            commentId: (created as { id: number }).id,
+          });
+        }
         return { ok: true };
       }
 
