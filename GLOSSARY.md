@@ -112,3 +112,7 @@ _Avoid_: Alert, Message, Activity
 **Notification Feed**:
 The place inside Cadence where a person sees their Notifications.
 _Avoid_: Inbox, Activity feed
+
+**Confirmation**:
+A message Cadence sends a person to acknowledge something they just did. It is never a Notification, because a person is never notified about their own action.
+_Avoid_: Receipt, Notification
