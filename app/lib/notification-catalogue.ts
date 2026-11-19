@@ -79,15 +79,28 @@ export const NOTIFICATIONS = {
 
 export type WorkflowSlug = keyof typeof NOTIFICATIONS;
 
+function isWorkflowSlug(tag: string): tag is WorkflowSlug {
+  return Object.hasOwn(NOTIFICATIONS, tag);
+}
+
+// A feed item doesn't name its workflow; each template's Inbox channel tags
+// it with the workflow slug (step 3 of the recipe).
+function catalogueTags(tags: readonly string[] | undefined) {
+  return (tags ?? []).filter(isWorkflowSlug);
+}
+
+/**
+ * Whether a feed item says which Notification it is. One that doesn't can
+ * never count as push-eligible, so its template is missing its tag.
+ */
+export function hasCatalogueTag(tags: readonly string[] | undefined) {
+  return catalogueTags(tags).length > 0;
+}
+
 /**
  * Whether a feed item goes out as a push too, so it may trigger the web push
- * ask. A feed item doesn't name its workflow; each template's Inbox channel
- * tags it with the workflow slug (step 3 of the recipe).
+ * ask.
  */
 export function isPushEligible(tags: readonly string[] | undefined) {
-  return (tags ?? []).some(
-    (tag) =>
-      Object.hasOwn(NOTIFICATIONS, tag) &&
-      NOTIFICATIONS[tag as WorkflowSlug].pushEligible
-  );
+  return catalogueTags(tags).some((slug) => NOTIFICATIONS[slug].pushEligible);
 }

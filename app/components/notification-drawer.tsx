@@ -19,8 +19,18 @@ export type FeedItem = {
 };
 
 type NotificationBellProps = {
+  /** The pages loaded so far, newest first. */
   items: FeedItem[];
+  /**
+   * Unread across every page, counted by the provider. Without it, only the
+   * loaded items are counted.
+   */
+  unreadCount?: number;
   loading?: boolean;
+  /** Whether there are older items than the ones loaded. */
+  hasOlder?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => void;
   onMarkRead?: (item: FeedItem) => void;
   onMarkAllRead?: () => void;
   /** A row pinned to the foot of the drawer, e.g. the push setting. */
@@ -29,7 +39,11 @@ type NotificationBellProps = {
 
 export function NotificationBell({
   items,
+  unreadCount,
   loading = false,
+  hasOlder = false,
+  loadingOlder = false,
+  onLoadOlder,
   onMarkRead,
   onMarkAllRead,
   footer,
@@ -38,6 +52,7 @@ export function NotificationBell({
   const navigate = useNavigate();
   const unread = items.filter((item) => !item.read);
   const earlier = items.filter((item) => item.read);
+  const unreadTotal = unreadCount ?? unread.length;
 
   function openItem(item: FeedItem) {
     if (!item.read) onMarkRead?.(item);
@@ -58,13 +73,13 @@ export function NotificationBell({
           type="button"
           className="fixed right-4 top-3 z-40 flex items-center gap-1 rounded-full border bg-background p-2 shadow-sm hover:bg-muted"
           aria-label={
-            unread.length > 0
-              ? `Notifications, ${unread.length} unread`
+            unreadTotal > 0
+              ? `Notifications, ${unreadTotal} unread`
               : "Notifications"
           }
         >
           <Bell className="size-5" />
-          <UnreadBadge count={unread.length} />
+          <UnreadBadge count={unreadTotal} />
         </button>
       </Dialog.Trigger>
       <Dialog.Portal>
@@ -79,7 +94,7 @@ export function NotificationBell({
               <button
                 type="button"
                 className="text-sm text-primary disabled:text-muted-foreground"
-                disabled={unread.length === 0}
+                disabled={unreadTotal === 0}
                 onClick={() => onMarkAllRead?.()}
               >
                 Mark all read
@@ -96,7 +111,18 @@ export function NotificationBell({
               </p>
             )}
             <FeedSection title="Unread" items={unread} onOpen={openItem} />
-            <FeedSection title="Earlier" items={earlier} onOpen={openItem} />
+            <FeedSection title="Earlier" items={earlier} onOpen={openItem}>
+              {hasOlder && (
+                <button
+                  type="button"
+                  className="w-full px-4 py-3 text-sm text-primary hover:bg-muted disabled:text-muted-foreground"
+                  disabled={loadingOlder}
+                  onClick={() => onLoadOlder?.()}
+                >
+                  {loadingOlder ? "Loading…" : "Load older"}
+                </button>
+              )}
+            </FeedSection>
           </div>
           {footer && <footer className="border-t">{footer}</footer>}
         </Dialog.Content>
@@ -109,12 +135,15 @@ function FeedSection({
   title,
   items,
   onOpen,
+  children,
 }: {
   title: string;
   items: FeedItem[];
   onOpen: (item: FeedItem) => void;
+  /** Shown after the items, e.g. a control to load more. */
+  children?: ReactNode;
 }) {
-  if (items.length === 0) return null;
+  if (items.length === 0 && !children) return null;
   return (
     <section>
       <h3 className="bg-muted px-4 py-1 text-xs font-semibold uppercase">
@@ -123,6 +152,7 @@ function FeedSection({
       {items.map((item) => (
         <FeedRow key={item.id} item={item} onOpen={onOpen} />
       ))}
+      {children}
     </section>
   );
 }

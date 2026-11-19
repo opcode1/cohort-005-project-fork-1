@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ApiResponseStatus,
   SuprSendFeedProvider,
   SuprSendProvider,
   useAuthenticateUser,
@@ -7,6 +8,7 @@ import {
   useFeedData,
   useSuprSendClient,
   type IRemoteNotification,
+  type IStore,
 } from "@suprsend/react-core";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -19,7 +21,10 @@ import {
   PushOnThisBrowser,
   type PushStatus,
 } from "~/components/push-on-this-browser";
-import { isPushEligible } from "~/lib/notification-catalogue";
+import {
+  hasCatalogueTag,
+  isPushEligible,
+} from "~/lib/notification-catalogue";
 import { FEED_TOKEN_PATH, FEED_USER_HEADER } from "~/lib/notification-feed";
 import { pushPreferences, shouldAskForPush } from "~/lib/push-prompt";
 
@@ -75,29 +80,50 @@ export default function NotificationFeed({
       vapidKey={vapidKey ?? undefined}
       swFileName={SERVICE_WORKER_FILE}
     >
-      <SuprSendFeedProvider>
+      <SuprSendFeedProvider stores={FEED_STORES}>
         <LiveNotificationBell />
       </SuprSendFeedProvider>
     </SuprSendProvider>
   );
 }
 
+// The first store is the one the drawer lists: everything. The second lists
+// nothing; it is there so SuprSend counts the unread Notifications on its
+// server, across every page, in `meta[UNREAD_STORE]`.
+const UNREAD_STORE = "unread";
+const FEED_STORES: IStore[] = [
+  { storeId: "all", label: "All" },
+  { storeId: UNREAD_STORE, label: "Unread", query: { read: false } },
+];
+
 function LiveNotificationBell() {
   const feed = useFeedClient();
   const data = useFeedData();
   const push = usePushOnThisBrowser();
+  const notifications = data?.notifications;
   useAskForPushOnArrival(
-    data?.notifications,
+    notifications,
     data?.isFirstFetch ?? true,
     push.turnOn
   );
+  useEffect(() => warnOnceIfUntagged(notifications ?? []), [notifications]);
 
   return (
     <NotificationBell
-      items={(data?.notifications ?? []).map(toFeedItem)}
+      items={(notifications ?? []).map(toFeedItem)}
+      unreadCount={data?.meta[UNREAD_STORE]}
       loading={data?.isFirstFetch ?? true}
-      onMarkRead={(item) => feed?.markAsRead(item.id)}
-      onMarkAllRead={() => feed?.markAllAsRead()}
+      hasOlder={data?.pageInfo.hasMore ?? false}
+      loadingOlder={data?.apiStatus === ApiResponseStatus.FETCHING_MORE}
+      onLoadOlder={() => void feed?.fetchNextPage()}
+      // Marking read updates the loaded items at once, but not the server's
+      // count, so fetch it again.
+      onMarkRead={(item) =>
+        void feed?.markAsRead(item.id).then(() => feed.fetchCount())
+      }
+      onMarkAllRead={() =>
+        void feed?.markAllAsRead().then(() => feed.fetchCount())
+      }
       footer={
         <PushOnThisBrowser
           status={push.status}
@@ -238,6 +264,23 @@ function useAskForPushOnArrival(
       },
     });
   }, [notifications, loading, turnOn]);
+}
+
+// Push eligibility rests on each template tagging its feed items with the
+// workflow slug. A missing tag fails silently (the ask never shows), so say
+// so once per page load.
+let warnedUntagged = false;
+
+function warnOnceIfUntagged(notifications: IRemoteNotification[]) {
+  if (warnedUntagged) return;
+  const untagged = notifications.find(
+    (notification) => !hasCatalogueTag(notification.tags)
+  );
+  if (!untagged) return;
+  warnedUntagged = true;
+  console.warn(
+    `Notification Feed item ${untagged.n_id} has no catalogue tag, so it can never count as push-eligible. Tag its template's Inbox channel with the workflow slug (see notification-catalogue.ts, step 3).`
+  );
 }
 
 function toFeedItem(notification: IRemoteNotification): FeedItem {
