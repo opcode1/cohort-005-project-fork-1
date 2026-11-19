@@ -189,10 +189,11 @@ let outboxIdBeforeClaim: number;
 
 describe("claimSeat's Notifications and Confirmations", () => {
   beforeEach(() => {
-    outboxIdBeforeClaim = db
-      .select({ max: sql<number>`coalesce(max(${schema.outbox.id}), 0)` })
-      .from(schema.outbox)
-      .get()!.max;
+    outboxIdBeforeClaim =
+      db
+        .select({ max: sql<number | null>`max(${schema.outbox.id})` })
+        .from(schema.outbox)
+        .get()?.max ?? 0;
   });
 
   it("tells the Team Admin, links to the team page, and welcomes the claimant", () => {
