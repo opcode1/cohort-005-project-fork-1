@@ -15,13 +15,21 @@ function base64url(value: string | Buffer) {
   return Buffer.from(value).toString("base64url");
 }
 
+function signingKeyPem(signingKey: string) {
+  const pem = signingKey.includes("BEGIN")
+    ? signingKey
+    : Buffer.from(signingKey, "base64").toString("utf8");
+  return pem.replaceAll("\\n", "\n");
+}
+
 /**
  * A 1-hour ES256 token that lets the browser read `userId`'s feed.
- * `signingKey` is the per-environment PEM, multi-line or on one line with
- * `\n` escapes.
+ * `signingKey` is the per-environment key: a PEM, multi-line or on one line
+ * with `\n` escapes, or the one-line Base64 of that PEM that SuprSend's
+ * dashboard offers.
  */
 export function mintUserToken(userId: number, signingKey: string, now: Date) {
-  const key = createPrivateKey(signingKey.replaceAll("\\n", "\n"));
+  const key = createPrivateKey(signingKeyPem(signingKey));
   const iat = Math.floor(now.getTime() / 1000);
   const header = base64url(JSON.stringify({ alg: "ES256", typ: "JWT" }));
   const payload = base64url(
@@ -81,7 +89,7 @@ function userTokenFor(
   } catch (error) {
     // Name the setting, never its value.
     console.error(
-      `SUPRSEND_SIGNING_KEY could not be read as a PEM private key: ${errorMessage(error)}`
+      `SUPRSEND_SIGNING_KEY could not be read as a private key (PEM, or its Base64): ${errorMessage(error)}`
     );
     return null;
   }

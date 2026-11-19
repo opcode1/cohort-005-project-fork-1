@@ -50,6 +50,14 @@ describe("user tokens for the Notification Feed (secure mode)", () => {
     expect(verifiesWith(publicKey, feed.userToken ?? "")).toBe(true);
   });
 
+  it("signs with the one-line Base64 form SuprSend's dashboard offers", () => {
+    const env = { SUPRSEND_SIGNING_KEY: Buffer.from(pem).toString("base64") };
+
+    const feed = notificationFeedFor(7, env, now);
+
+    expect(verifiesWith(publicKey, feed.userToken ?? "")).toBe(true);
+  });
+
   it("gives no token without a signing key, so the bell shows an empty feed", () => {
     expect(notificationFeedFor(7, {}, now)).toEqual({
       publicApiKey: null,
