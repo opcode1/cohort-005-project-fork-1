@@ -1,3 +1,4 @@
+import { createPrivateKey, sign } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OutboxKind } from "~/db/schema";
@@ -412,6 +413,84 @@ export function seatClaimed(
     { course_title: courseTitle, claimant_name: claimant.name },
     "/team"
   );
+}
+
+// ─── Notification Feed tokens ───
+// Secure mode is on for the public key in every workspace (docs/adr/0015),
+// so the browser's feed needs a token signed for its user.
+
+const USER_TOKEN_LIFETIME_SECONDS = 60 * 60;
+
+function base64url(value: string | Buffer) {
+  return Buffer.from(value).toString("base64url");
+}
+
+/**
+ * A 1-hour ES256 token that lets the browser read `userId`'s feed.
+ * `signingKey` is the per-environment PEM, multi-line or on one line with
+ * `\n` escapes.
+ */
+export function mintUserToken(userId: number, signingKey: string, now: Date) {
+  const key = createPrivateKey(signingKey.replaceAll("\\n", "\n"));
+  const iat = Math.floor(now.getTime() / 1000);
+  const header = base64url(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+  const payload = base64url(
+    JSON.stringify({
+      entity_type: "subscriber",
+      entity_id: String(userId),
+      iat,
+      exp: iat + USER_TOKEN_LIFETIME_SECONDS,
+    })
+  );
+  // JWS wants the raw r||s signature, not Node's default DER encoding.
+  const signature = sign("sha256", Buffer.from(`${header}.${payload}`), {
+    key,
+    dsaEncoding: "ieee-p1363",
+  });
+  return `${header}.${payload}.${base64url(signature)}`;
+}
+
+/** What the browser needs to open the signed-in person's feed. */
+export type NotificationFeedSession = {
+  publicApiKey: string | null;
+  // Both null when nobody is signed in.
+  distinctId: string | null;
+  userToken: string | null;
+};
+
+export function notificationFeedFor(
+  userId: number | null,
+  env: Record<string, string | undefined> = process.env,
+  now = new Date()
+): NotificationFeedSession {
+  const publicApiKey = env.SUPRSEND_PUBLIC_API_KEY || null;
+  if (userId === null) {
+    return { publicApiKey, distinctId: null, userToken: null };
+  }
+
+  return {
+    publicApiKey,
+    distinctId: String(userId),
+    userToken: userTokenFor(userId, env.SUPRSEND_SIGNING_KEY, now),
+  };
+}
+
+// Without a usable key the bell shows an empty feed; it never breaks a page.
+function userTokenFor(
+  userId: number,
+  signingKey: string | undefined,
+  now: Date
+) {
+  if (!signingKey) return null;
+  try {
+    return mintUserToken(userId, signingKey, now);
+  } catch (error) {
+    // Name the setting, never its value.
+    console.error(
+      `SUPRSEND_SIGNING_KEY could not be read as a PEM private key: ${errorMessage(error)}`
+    );
+    return null;
+  }
 }
 
 // ─── Transports ───
