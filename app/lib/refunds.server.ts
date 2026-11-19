@@ -726,7 +726,11 @@ export function approveRefundRequest(
       tx,
       notices
         ? [
-            refundApproved(notices.decision, notices.buyer),
+            ...refundApproved(
+              notices.decision,
+              notices.buyer,
+              platformAdminId
+            ),
             ...refundApprovedToInstructor(
               notices.decision,
               notices.buyer,
@@ -787,7 +791,9 @@ export function declineRefundRequest(
     );
     enqueue(
       tx,
-      notices ? [refundDeclined(notices.decision, notices.buyer)] : [],
+      notices
+        ? refundDeclined(notices.decision, notices.buyer, platformAdminId)
+        : [],
       now
     );
 

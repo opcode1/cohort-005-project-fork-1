@@ -132,19 +132,26 @@ function decisionData(decision: RefundDecisionNotice) {
   };
 }
 
-/** To the buyer, on feed, push and email. */
+/**
+ * To the buyer, on feed, push and email, unless they approved it themselves
+ * as a Platform Admin.
+ */
 export function refundApproved(
   decision: RefundDecisionNotice,
-  buyer: Person
-): OutboxMessage {
-  return trigger(
-    "refund-approved",
-    "refund-request",
-    decision.id,
-    buyer,
-    decisionData(decision),
-    linkForBuyer(decision)
-  );
+  buyer: Person,
+  actorId: number
+): OutboxMessage[] {
+  if (buyer.id === actorId) return [];
+  return [
+    trigger(
+      "refund-approved",
+      "refund-request",
+      decision.id,
+      buyer,
+      decisionData(decision),
+      linkForBuyer(decision)
+    ),
+  ];
 }
 
 /** To the course's Instructor, unless they decided it themselves. */
@@ -171,19 +178,26 @@ export function refundApprovedToInstructor(
   ];
 }
 
-/** To the buyer, on feed, push and email, with the Platform Admin's note. */
+/**
+ * To the buyer, on feed, push and email, with the Platform Admin's note,
+ * unless they declined it themselves.
+ */
 export function refundDeclined(
   decision: RefundDecisionNotice,
-  buyer: Person
-): OutboxMessage {
-  return trigger(
-    "refund-declined",
-    "refund-request",
-    decision.id,
-    buyer,
-    decisionData(decision),
-    linkForBuyer(decision)
-  );
+  buyer: Person,
+  actorId: number
+): OutboxMessage[] {
+  if (buyer.id === actorId) return [];
+  return [
+    trigger(
+      "refund-declined",
+      "refund-request",
+      decision.id,
+      buyer,
+      decisionData(decision),
+      linkForBuyer(decision)
+    ),
+  ];
 }
 
 // ─── Users ───

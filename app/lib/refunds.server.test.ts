@@ -543,6 +543,22 @@ describe("approving a Refund Request", () => {
     );
   });
 
+  it("does not notify a buyer who approved their own Refund Request", () => {
+    const purchase = buyForSelf(platformAdmin.id);
+    const id = raise(purchase.id, platformAdmin.id);
+    const before = triggers().length;
+
+    approveRefundRequest(db, id, platformAdmin.id, null, NOW);
+
+    expect(
+      triggers()
+        .slice(before)
+        .map((row) => row.idempotencyKey)
+    ).toEqual([
+      `refund-approved-instructor:refund-request:${id}:user:${base.instructor.id}`,
+    ]);
+  });
+
   it("writes no rows when the approval is refused", () => {
     const priya = addLearner("Priya");
     const { purchase, seats } = buySeats(priya.id, 2);
@@ -617,6 +633,16 @@ describe("declining a Refund Request", () => {
         link: "/settings",
       },
     });
+  });
+
+  it("does not notify a buyer who declined their own Refund Request", () => {
+    const purchase = buyForSelf(platformAdmin.id);
+    const id = raise(purchase.id, platformAdmin.id);
+    const before = outboxRows().length;
+
+    declineRefundRequest(db, id, platformAdmin.id, "Changed my mind.", NOW);
+
+    expect(outboxRows()).toHaveLength(before);
   });
 
   it("writes no rows when the decline is refused", () => {
