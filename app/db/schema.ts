@@ -377,6 +377,8 @@ export const videoWatchEvents = sqliteTable("video_watch_events", {
 
 export enum OutboxKind {
   Email = "email",
+  SuprsendTrigger = "suprsend_trigger",
+  SuprsendUserUpdate = "suprsend_user_update",
 }
 
 export enum OutboxStatus {
