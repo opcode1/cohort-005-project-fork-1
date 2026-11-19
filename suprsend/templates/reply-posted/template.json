@@ -1,0 +1,16 @@
+{
+  "slug": "reply-posted",
+  "name": "reply-posted",
+  "enabled_channels": [
+    "inbox",
+    "webpush"
+  ],
+  "variant_order": {
+    "inbox": [
+      "default"
+    ],
+    "webpush": [
+      "default"
+    ]
+  }
+}

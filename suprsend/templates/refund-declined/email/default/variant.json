@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.suprsend.com/template/v2/variant_schema.json",
+  "id": "default",
+  "channel": "email",
+  "locale": "en",
+  "tenant_id": null,
+  "conditions": [],
+  "content": {
+    "$schema": "https://schema.suprsend.com/template/v2/channel/email_schema.json",
+    "templating_language": "handlebars",
+    "subject": "Refund declined — {{course_title}}",
+    "body": {
+      "type": "raw",
+      "raw": {
+        "html": "<p>Hi {{$recipient.name}},</p>\n<p>We have looked at your refund request for \"{{course_title}}\" and decided not to refund it.</p>\n<p>{{note}}</p>\n<p>You still have everything you bought. If something changes, you can raise a new refund request.</p>\n<p>— The Cadence team</p>",
+        "text": "Hi {{$recipient.name}},\n\nWe have looked at your refund request for \"{{course_title}}\" and decided not to refund it.\n\n{{note}}\n\nYou still have everything you bought. If something changes, you can raise a new refund request.\n\n— The Cadence team"
+      }
+    }
+  }
+}

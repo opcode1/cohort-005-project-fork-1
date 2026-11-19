@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Route } from "./+types/admin.users";
 import { getCurrentUserId } from "~/lib/session";
 import { parseFormData } from "~/lib/validation";
+import { updateUserDetails } from "~/lib/users.server";
 import { UserRole, users } from "~/db/schema";
 import { db } from "~/db";
 import { eq } from "drizzle-orm";
@@ -41,20 +42,6 @@ function getAllUsers() {
 
 function getUserById(id: number) {
   return db.select().from(users).where(eq(users.id, id)).get();
-}
-
-function updateUser(
-  id: number,
-  name: string,
-  email: string,
-  bio: string | null
-) {
-  return db
-    .update(users)
-    .set({ name, email, bio })
-    .where(eq(users.id, id))
-    .returning()
-    .get();
 }
 
 function updateUserRole(id: number, role: UserRole) {
@@ -118,8 +105,10 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (intent === "update-user") {
     const { userId, name, email } = parsed.data;
-    const user = getUserById(userId);
-    updateUser(userId, name, email, user?.bio ?? null);
+    const result = updateUserDetails(db, userId, name, email, new Date());
+    if (!result.ok) {
+      throw data(result.error, { status: result.status });
+    }
     return { success: true };
   }
 

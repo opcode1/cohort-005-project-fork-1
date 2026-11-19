@@ -54,4 +54,6 @@ export default [
   route("api/logout", "routes/api.logout.ts"),
   route("api/video-tracking", "routes/api.video-tracking.ts"),
   route("api/set-dev-country", "routes/api.set-dev-country.ts"),
+  route("api/notification-token", "routes/api.notification-token.ts"),
+  route("serviceworker.js", "routes/serviceworker.ts"),
 ] satisfies RouteConfig;

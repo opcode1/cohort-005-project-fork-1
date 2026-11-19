@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.suprsend.com/template/v2/variant_schema.json",
+  "id": "default",
+  "channel": "inbox",
+  "locale": "en",
+  "tenant_id": null,
+  "conditions": [],
+  "content": {
+    "$schema": "https://schema.suprsend.com/template/v2/channel/inbox_schema.json",
+    "templating_language": "handlebars",
+    "schema_version": "1.0",
+    "header": "Refund declined",
+    "body": "Your refund request for {{course_title}} was declined. {{note}}",
+    "action_url": "{{url}}",
+    "tags": [
+      "refund-declined"
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "slug": "refund-approved-instructor",
+  "name": "refund-approved-instructor",
+  "enabled_channels": [
+    "inbox"
+  ],
+  "variant_order": {
+    "inbox": [
+      "default"
+    ]
+  }
+}

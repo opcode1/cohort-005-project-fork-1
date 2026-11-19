@@ -210,7 +210,7 @@ function CommentItem({
 
   if (comment.deleted) {
     return (
-      <div className="py-3">
+      <div id={`comment-${comment.id}`} className="py-3">
         <p className="text-sm italic text-muted-foreground">
           This comment was deleted.
         </p>
@@ -225,7 +225,10 @@ function CommentItem({
   }
 
   return (
-    <div className={cn("py-3", isReply && "border-l pl-4")}>
+    <div
+      id={`comment-${comment.id}`}
+      className={cn("scroll-mt-20 py-3", isReply && "border-l pl-4")}
+    >
       <div className="flex items-start gap-3">
         <UserAvatar
           name={comment.author.name}

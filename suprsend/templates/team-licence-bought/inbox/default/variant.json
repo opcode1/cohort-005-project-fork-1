@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.suprsend.com/template/v2/variant_schema.json",
+  "id": "default",
+  "channel": "inbox",
+  "locale": "en",
+  "tenant_id": null,
+  "conditions": [],
+  "content": {
+    "$schema": "https://schema.suprsend.com/template/v2/channel/inbox_schema.json",
+    "templating_language": "handlebars",
+    "schema_version": "1.0",
+    "header": "Team Licence bought",
+    "body": "{{buyer_name}} bought a Team Licence with {{seat_count}} seats for {{course_title}} ({{amount}}).",
+    "action_url": "{{url}}",
+    "tags": [
+      "team-licence-bought"
+    ]
+  }
+}

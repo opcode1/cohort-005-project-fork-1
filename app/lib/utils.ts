@@ -14,6 +14,11 @@ export function formatPrice(cents: number | null | undefined): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/** The message of anything thrown, whether or not it is an `Error`. */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /** Whole days between an ISO timestamp and now. Negative values clamp to 0. */
 export function daysSince(iso: string): number {
   const elapsed = Date.now() - new Date(iso).getTime();

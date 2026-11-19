@@ -13,7 +13,10 @@ import {
   RefundStatus,
   QuestionType,
   TeamMemberRole,
+  OutboxStatus,
 } from "../app/db/schema";
+import { refundRequestedConfirmation } from "../app/lib/confirmations.server";
+import type { Person } from "../app/lib/person";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,6 +68,7 @@ async function seed() {
 
   // Drop and recreate tables for a clean seed
   sqlite.exec(`
+    DROP TABLE IF EXISTS outbox;
     DROP TABLE IF EXISTS comments;
     DROP TABLE IF EXISTS course_ratings;
     DROP TABLE IF EXISTS video_watch_events;
@@ -2798,6 +2802,41 @@ This course is still in draft while the cluster examples are rewritten against t
 
   console.log("Created Marta's Refund Request on her Team Licence.");
 
+  // ─── Outbox ───
+  // The Refund requested Confirmations the two Refund Requests above caused,
+  // already sent, so the dispatcher has nothing to send on boot.
+
+  function sentRefundRequestedEmail(
+    buyer: Person,
+    course: { title: string },
+    amountPaid: number,
+    requestedAt: string
+  ) {
+    return {
+      ...refundRequestedConfirmation(buyer, course, amountPaid),
+      status: OutboxStatus.Sent,
+      attempts: 1,
+      createdAt: requestedAt,
+      nextAttemptAt: requestedAt,
+      retryWindowStartedAt: requestedAt,
+      sentAt: requestedAt,
+    };
+  }
+
+  db.insert(schema.outbox)
+    .values([
+      sentRefundRequestedEmail(liam, course1, 7900, daysAgo(4)),
+      sentRefundRequestedEmail(
+        studentByEmail("marta.novak@student.dev"),
+        course3,
+        novakLicence.purchase.amountPaid,
+        daysAgo(1)
+      ),
+    ])
+    .run();
+
+  console.log("Created the outbox's sent Refund requested emails.");
+
   // ─── Flush watch events ───
   // Batched: the heartbeat makes these by far the largest table, and one
   // statement per row would dominate the seed's runtime.
@@ -2851,6 +2890,9 @@ This course is still in draft while the cluster examples are rewritten against t
   );
   console.log(
     `  Teams: ${countRows(schema.teams)}, coupons: ${countRows(schema.coupons)} (${countRows(schema.coupons, isNotNull(schema.coupons.redeemedByUserId))} redeemed)`
+  );
+  console.log(
+    `  Outbox: ${countRows(schema.outbox)} (${countRows(schema.outbox, eq(schema.outbox.status, OutboxStatus.Sent))} sent)`
   );
 }
 

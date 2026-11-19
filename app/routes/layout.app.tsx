@@ -1,9 +1,15 @@
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Outlet } from "react-router";
 import type { Route } from "./+types/layout.app";
 import { Sidebar } from "~/components/sidebar";
 import { DevUI } from "~/components/dev-ui";
+import { NotificationBell } from "~/components/notification-drawer";
 import { Toaster } from "sonner";
 import { getCurrentUserId, getDevCountry } from "~/lib/session";
+import {
+  notificationFeedFor,
+  type NotificationFeedSession,
+} from "~/lib/notification-feed.server";
 import { getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
 import { eq, and, or, sql, desc } from "drizzle-orm";
 import { db } from "~/db";
@@ -213,7 +219,39 @@ export async function loader({ request }: Route.LoaderArgs) {
     countryTierInfo,
     countries: COUNTRIES,
     isTeamAdmin: currentUserId ? isTeamAdmin(currentUserId) : false,
+    // `distinctId` and `userToken` together, both null when signed out.
+    notificationFeed: notificationFeedFor(currentUser?.id ?? null),
   };
+}
+
+// Client-only: SuprSend needs `window`, so it loads after hydration.
+const NotificationFeed = lazy(
+  () => import("~/components/notification-feed.client")
+);
+
+/**
+ * The bell, for signed-in people only. Without SuprSend keys, or before
+ * hydration, it shows an empty feed; the live feed replaces it once loaded.
+ */
+function NotificationFeedSlot({ feed }: { feed: NotificationFeedSession }) {
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+
+  const { publicApiKey, vapidKey, distinctId, userToken } = feed;
+  if (distinctId === null) return null;
+  if (!hydrated || !publicApiKey || !userToken) {
+    return <NotificationBell items={[]} />;
+  }
+  return (
+    <Suspense fallback={<NotificationBell items={[]} loading />}>
+      <NotificationFeed
+        publicApiKey={publicApiKey}
+        vapidKey={vapidKey}
+        distinctId={distinctId}
+        userToken={userToken}
+      />
+    </Suspense>
+  );
 }
 
 export default function AppLayout({ loaderData }: Route.ComponentProps) {
@@ -225,6 +263,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
     countryTierInfo,
     countries,
     isTeamAdmin: userIsTeamAdmin,
+    notificationFeed,
   } = loaderData;
 
   return (
@@ -237,6 +276,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
       <main className="flex-1 overflow-y-auto">
         <Outlet />
       </main>
+      <NotificationFeedSlot feed={notificationFeed} />
       <DevUI
         users={users}
         currentUser={currentUser}

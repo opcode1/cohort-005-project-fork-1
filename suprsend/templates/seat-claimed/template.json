@@ -1,0 +1,12 @@
+{
+  "slug": "seat-claimed",
+  "name": "seat-claimed",
+  "enabled_channels": [
+    "inbox"
+  ],
+  "variant_order": {
+    "inbox": [
+      "default"
+    ]
+  }
+}

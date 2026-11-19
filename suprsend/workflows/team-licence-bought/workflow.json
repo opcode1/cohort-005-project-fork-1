@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.suprsend.com/workflow/v1/schema.json",
+  "slug": "team-licence-bought",
+  "name": "team-licence-bought",
+  "description": "Team Licence bought. Triggered by Cadence's outbox; see app/lib/notification-catalogue.ts.",
+  "category": "system",
+  "trigger_type": "api",
+  "override_recipients_type": null,
+  "tree": {
+    "nodes": [
+      {
+        "name": "Send",
+        "node_type": "send_multi_channel",
+        "properties": {
+          "template": "team-licence-bought",
+          "channels": [
+            "inbox"
+          ]
+        }
+      }
+    ]
+  }
+}
