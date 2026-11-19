@@ -1,4 +1,4 @@
-import { and, asc, eq, lt, lte } from "drizzle-orm";
+import { and, asc, eq, lt, lte, ne, sql } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
 import { outbox, OutboxKind, OutboxStatus } from "~/db/schema";
@@ -64,6 +64,32 @@ export function enqueue(tx: Tx | Db, messages: OutboxMessage[], now: Date) {
   // caller's transaction has committed (or rolled back, and there is nothing
   // to send).
   setImmediate(wakeDispatcher);
+}
+
+/**
+ * Points every unsent SuprSend trigger to `userId` at their new email. Call
+ * it in the transaction that changes the email: a trigger saved before it
+ * still names the old address, and sent after the email swap it would add
+ * that address back in SuprSend (docs/adr/0015). Failed rows are rewritten
+ * too, since an operator may re-queue them.
+ */
+export function readdressUnsentTriggers(
+  tx: Tx | Db,
+  userId: number,
+  email: string
+) {
+  tx.update(outbox)
+    .set({
+      payload: sql`json_set(${outbox.payload}, '$.recipient."$email"', ${email})`,
+    })
+    .where(
+      and(
+        eq(outbox.kind, OutboxKind.SuprsendTrigger),
+        ne(outbox.status, OutboxStatus.Sent),
+        sql`json_extract(${outbox.payload}, '$.recipient.distinct_id') = ${String(userId)}`
+      )
+    )
+    .run();
 }
 
 // ─── Sending ───
