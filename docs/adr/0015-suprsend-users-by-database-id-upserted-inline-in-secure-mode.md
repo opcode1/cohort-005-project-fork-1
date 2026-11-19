@@ -1,6 +1,6 @@
 # Cadence users reach SuprSend by database id, upserted inline, in secure mode
 
-A SuprSend user's `distinct_id` is `String(users.id)`. It can never change, so it can't be the email, which a Platform Admin can edit. Cadence doesn't sync users to SuprSend at sign-up or on a profile change, and there's no backfill. Instead, each trigger names its recipient inline as `{distinct_id, $email, name}`, so SuprSend upserts the user with current data at send time. The browser's `identify` creates a bare user the first time someone signs in, so the Notification Feed and web push work before their first Notification. Secure mode is on for the public key in every workspace, because without it anyone holding the public key could read any feed by guessing an id. The Notification Feed module (`app/lib/notification-feed.server.ts`), not the notify module, mints a 1-hour ES256 token for the session's user, so routes still never import the notify module (ADR 0016). The app layout's loader returns the token together with the `distinct_id`.
+A SuprSend user's `distinct_id` is `String(users.id)`. It can never change, so it can't be the email, which a Platform Admin can edit. Cadence doesn't sync users to SuprSend at sign-up or on a profile change, and there's no backfill. Instead, each trigger names its recipient inline as `{distinct_id, name}`, so SuprSend upserts the user at send time. The recipient never carries a channel such as `$email`: SuprSend sends a trigger only on the channels its recipient names, so an inline `$email` would keep every Notification out of the feed and push. A Notification with an email channel queues an email update for its recipient just ahead of the trigger instead. The browser's `identify` creates a bare user the first time someone signs in, so the Notification Feed and web push work before their first Notification. Secure mode is on for the public key in every workspace, because without it anyone holding the public key could read any feed by guessing an id. The Notification Feed module (`app/lib/notification-feed.server.ts`), not the notify module, mints a 1-hour ES256 token for the session's user, so routes still never import the notify module (ADR 0016). The app layout's loader returns the token together with the `distinct_id`.
 
 ## Considered Options
 
@@ -9,7 +9,8 @@ A SuprSend user's `distinct_id` is `String(users.id)`. It can never change, so i
 
 ## Consequences
 
-- The one exception to "no sync" is a Platform Admin changing a user's email. SuprSend may keep the old address alongside the new one, so the notify module removes the old address and adds the new one.
+- A Notification to someone who has never opened Cadence since SuprSend went live is dropped from the feed: SuprSend has no Inbox channel for them until their browser's first `identify`.
+- Besides those email updates, the one exception to "no sync" is a Platform Admin changing a user's email. SuprSend may keep the old address alongside the new one, so the notify module removes the old address and adds the new one.
 - A token is refreshed through a resource route that mints for whoever the session cookie names. A tab whose user was switched in another tab loses its feed until it reloads.
 - Web push belongs to the browser and follows whoever is signed in. The server never clears `$webpush` on logout, because that would remove the user's subscriptions on every device.
 - Cadence has no user deletion, so a GDPR deletion request is handled by hand: the operator deletes the SuprSend user with `users.delete(id)` or in the dashboard.

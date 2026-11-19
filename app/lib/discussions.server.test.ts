@@ -171,7 +171,6 @@ describe("postComment's Notifications", () => {
           workflow: "question-asked",
           recipient: {
             distinct_id: String(base.instructor.id),
-            $email: "instructor@example.com",
             name: "Test Instructor",
           },
           data: {
@@ -198,7 +197,6 @@ describe("postComment's Notifications", () => {
         workflow: "reply-posted",
         recipient: {
           distinct_id: String(base.user.id),
-          $email: "test@example.com",
           name: "Test User",
         },
         data: {

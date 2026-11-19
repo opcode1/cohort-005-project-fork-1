@@ -241,7 +241,6 @@ describe("raising a Refund Request", () => {
           workflow: "refund-raised",
           recipient: {
             distinct_id: String(admin.id),
-            $email: admin.email,
             name: admin.name,
           },
           data: {
@@ -476,9 +475,14 @@ describe("approving a Refund Request", () => {
 
     expect(result).toEqual({ ok: true });
     expect(outboxRows().slice(before).map(({ kind }) => kind)).toEqual([
+      "suprsend_user_update",
       "suprsend_trigger",
       "suprsend_trigger",
     ]);
+    expect(outboxRows()[before].payload).toEqual({
+      distinct_id: String(base.user.id),
+      addEmail: "test@example.com",
+    });
     expect(triggers().slice(-2)).toEqual([
       {
         idempotencyKey: `refund-approved:refund-request:${id}:user:${base.user.id}`,
@@ -486,7 +490,6 @@ describe("approving a Refund Request", () => {
           workflow: "refund-approved",
           recipient: {
             distinct_id: String(base.user.id),
-            $email: "test@example.com",
             name: "Test User",
           },
           data: { course_title: "Test Course", amount: "$79.00", note: "" },
@@ -499,7 +502,6 @@ describe("approving a Refund Request", () => {
           workflow: "refund-approved-instructor",
           recipient: {
             distinct_id: String(base.instructor.id),
-            $email: "instructor@example.com",
             name: "Test Instructor",
           },
           data: {
@@ -614,15 +616,19 @@ describe("declining a Refund Request", () => {
     declineRefundRequest(db, id, platformAdmin.id, "  You finished the course. ", NOW);
 
     expect(outboxRows().slice(before).map(({ kind }) => kind)).toEqual([
+      "suprsend_user_update",
       "suprsend_trigger",
     ]);
+    expect(outboxRows()[before].payload).toEqual({
+      distinct_id: String(base.user.id),
+      addEmail: "test@example.com",
+    });
     expect(triggers().at(-1)).toEqual({
       idempotencyKey: `refund-declined:refund-request:${id}:user:${base.user.id}`,
       payload: {
         workflow: "refund-declined",
         recipient: {
           distinct_id: String(base.user.id),
-          $email: "test@example.com",
           name: "Test User",
         },
         data: {
@@ -660,7 +666,7 @@ describe("declining a Refund Request", () => {
     });
     approveRefundRequest(db, id, platformAdmin.id, null, NOW);
     const afterApproval = outboxRows().length;
-    expect(afterApproval).toBe(before + 2);
+    expect(afterApproval).toBe(before + 3);
 
     expect(declineRefundRequest(db, id, platformAdmin.id, "No.", NOW)).toMatchObject({
       ok: false,

@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { users } from "~/db/schema";
 import type { Db, Queryable } from "~/db/types";
 import { userEmailChanged } from "~/lib/notify.server";
-import { enqueue, readdressUnsentTriggers } from "~/lib/outbox.server";
+import { enqueue } from "~/lib/outbox.server";
 
 // ─── Users ───
 // Looking up a user, and a Platform Admin editing someone's account.
@@ -20,8 +20,7 @@ export type UpdateUserResult =
 
 /**
  * Saves a user's name and email. When the email actually changes, the same
- * transaction queues the swap of that email in SuprSend and points the
- * user's unsent Notifications at the new address.
+ * transaction queues the swap of that email in SuprSend.
  */
 export function updateUserDetails(
   db: Db,
@@ -39,7 +38,6 @@ export function updateUserDetails(
     tx.update(users).set({ name, email }).where(eq(users.id, userId)).run();
 
     if (email !== user.email) {
-      readdressUnsentTriggers(tx, user.id, email);
       enqueue(tx, [userEmailChanged(user.id, user.email, email)], now);
     }
 

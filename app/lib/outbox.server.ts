@@ -1,4 +1,4 @@
-import { and, asc, eq, lt, lte, ne, sql } from "drizzle-orm";
+import { and, asc, eq, lt, lte } from "drizzle-orm";
 import { z } from "zod";
 import { outbox, OutboxKind, OutboxStatus } from "~/db/schema";
 import type { Db, Queryable } from "~/db/types";
@@ -66,32 +66,6 @@ export function enqueue(tx: Queryable, messages: OutboxMessage[], now: Date) {
   setImmediate(wakeDispatcher);
 }
 
-/**
- * Points every unsent SuprSend trigger to `userId` at their new email. Call
- * it in the transaction that changes the email: a trigger saved before it
- * still names the old address, and sent after the email swap it would add
- * that address back in SuprSend (docs/adr/0015). Failed rows are rewritten
- * too, since an operator may re-queue them.
- */
-export function readdressUnsentTriggers(
-  tx: Queryable,
-  userId: number,
-  email: string
-) {
-  tx.update(outbox)
-    .set({
-      payload: sql`json_set(${outbox.payload}, '$.recipient."$email"', ${email})`,
-    })
-    .where(
-      and(
-        eq(outbox.kind, OutboxKind.SuprsendTrigger),
-        ne(outbox.status, OutboxStatus.Sent),
-        sql`json_extract(${outbox.payload}, '$.recipient.distinct_id') = ${String(userId)}`
-      )
-    )
-    .run();
-}
-
 // ─── Sending ───
 
 export type SendResult =
@@ -137,7 +111,6 @@ const outboxMessageSchema = z.discriminatedUnion("kind", [
       workflow: z.string().refine(isWorkflowSlug),
       recipient: z.object({
         distinct_id: z.string(),
-        $email: z.string(),
         name: z.string(),
       }),
       data: z.record(z.union([z.string(), z.number()])),
@@ -149,7 +122,7 @@ const outboxMessageSchema = z.discriminatedUnion("kind", [
     kind: z.literal(OutboxKind.SuprsendUserUpdate),
     payload: z.object({
       distinct_id: z.string(),
-      removeEmail: z.string(),
+      removeEmail: z.string().optional(),
       addEmail: z.string(),
     }),
   }),

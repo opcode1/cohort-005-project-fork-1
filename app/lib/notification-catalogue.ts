@@ -14,7 +14,9 @@
 //    in the domain function's transaction: one `outbox` row per message
 //    per recipient, with a domain-derived idempotency key,
 //    `<workflow>:<record>:<id>:user:<recipientId>` (docs/adr/0016). Name the
-//    recipient inline as `{distinct_id, $email, name}` (docs/adr/0015).
+//    recipient inline as `{distinct_id, name}`, never with a channel such
+//    as `$email` (docs/adr/0015); with an email channel, queue
+//    `emailOnProfile` first, as the refund decisions do.
 //    Resolve recipients inside the transaction and filter out the actor.
 //    Store links as app paths; the transport makes them absolute.
 //    Test it where the domain function is tested: assert the rows written.

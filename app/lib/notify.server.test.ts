@@ -20,7 +20,7 @@ describe("the .outbox/notifications/ transport, used without SuprSend keys", () 
     ).trigger(
       {
         workflow: "question-asked",
-        recipient: { distinct_id: "2", $email: "ina@example.com", name: "Ina" },
+        recipient: { distinct_id: "2", name: "Ina" },
         data: { course_title: "Test Course", asker_name: "Sam" },
         link: "/courses/test-course/lessons/3#comment-4",
       },
@@ -31,7 +31,7 @@ describe("the .outbox/notifications/ transport, used without SuprSend keys", () 
     expect(readOnlyFile(directory)).toEqual({
       workflow: "question-asked",
       recipients: [
-        { distinct_id: "2", $email: "ina@example.com", name: "Ina" },
+        { distinct_id: "2", name: "Ina" },
       ],
       data: {
         course_title: "Test Course",
@@ -39,6 +39,20 @@ describe("the .outbox/notifications/ transport, used without SuprSend keys", () 
         url: "https://cadence.example/courses/test-course/lessons/3#comment-4",
       },
       idempotency_key: "question-asked:comment:4:user:2",
+    });
+  });
+
+  it("writes an email to add on its own, when there is none to remove", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "notifications-"));
+
+    await notificationFileTransport(
+      directory,
+      "https://cadence.example"
+    ).updateUser({ distinct_id: "7", addEmail: "new@example.com" });
+
+    expect(readOnlyFile(directory)).toEqual({
+      distinct_id: "7",
+      add_email: "new@example.com",
     });
   });
 

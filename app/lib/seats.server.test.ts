@@ -209,7 +209,6 @@ describe("claimSeat's Notifications and Confirmations", () => {
           workflow: "seat-claimed",
           recipient: {
             distinct_id: String(teamAdmin.id),
-            $email: "tess@example.com",
             name: "Tess",
           },
           data: {

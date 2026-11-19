@@ -223,7 +223,6 @@ describe("makeIndividualPurchase's Notifications and Confirmations", () => {
           workflow: "purchase-made",
           recipient: {
             distinct_id: String(base.instructor.id),
-            $email: "instructor@example.com",
             name: "Test Instructor",
           },
           data: {
@@ -325,7 +324,6 @@ describe("buyTeamLicence's Notifications and Confirmations", () => {
           workflow: "team-licence-bought",
           recipient: {
             distinct_id: String(base.instructor.id),
-            $email: "instructor@example.com",
             name: "Test Instructor",
           },
           data: {

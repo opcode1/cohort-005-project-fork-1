@@ -24,10 +24,12 @@ import { errorMessage, formatPrice } from "~/lib/utils";
 // ─── Row payloads ───
 
 /**
- * Names the recipient inline, so SuprSend upserts them with current details
- * at send time (docs/adr/0015). `distinct_id` is the database id, unprefixed.
+ * Names the recipient inline, so SuprSend upserts them at send time
+ * (docs/adr/0015). `distinct_id` is the database id, unprefixed. It carries
+ * no channel such as `$email`: SuprSend then sends a trigger on that channel
+ * alone, never the profile's Inbox or Web Push.
  */
-export type Recipient = { distinct_id: string; $email: string; name: string };
+export type Recipient = { distinct_id: string; name: string };
 
 /** A workflow trigger (never an event), complete as it was at commit. */
 export type SuprsendTrigger = {
@@ -39,18 +41,30 @@ export type SuprsendTrigger = {
   link: string;
 };
 
-/** Swaps the email SuprSend holds for a user after a Platform Admin edit. */
+/**
+ * Adds an email to a user's SuprSend profile, and after a Platform Admin
+ * edit removes the old one.
+ */
 export type SuprsendUserUpdate = {
   distinct_id: string;
-  removeEmail: string;
+  removeEmail?: string;
   addEmail: string;
 };
 
 function recipient(person: Person): Recipient {
+  return { distinct_id: String(person.id), name: person.name };
+}
+
+/**
+ * Puts the person's email on their SuprSend profile, so a Notification with
+ * an email channel has an address. Queued just before that trigger, so the
+ * outbox sends it first; adding an email SuprSend already holds changes
+ * nothing.
+ */
+function emailOnProfile(person: Person): OutboxMessage {
   return {
-    distinct_id: String(person.id),
-    $email: person.email,
-    name: person.name,
+    kind: OutboxKind.SuprsendUserUpdate,
+    payload: { distinct_id: String(person.id), addEmail: person.email },
   };
 }
 
@@ -156,6 +170,7 @@ export function refundApproved(
 ): OutboxMessage[] {
   if (buyer.id === actorId) return [];
   return [
+    emailOnProfile(buyer),
     trigger(
       "refund-approved",
       "refund-request",
@@ -198,6 +213,7 @@ export function refundDeclined(
 ): OutboxMessage[] {
   if (buyer.id === actorId) return [];
   return [
+    emailOnProfile(buyer),
     trigger(
       "refund-declined",
       "refund-request",
@@ -472,7 +488,7 @@ export function suprsendTransport(
       try {
         const { suprsend } = await getClient();
         const edit = suprsend.users.get_edit_instance(update.distinct_id);
-        edit.remove_email(update.removeEmail);
+        if (update.removeEmail) edit.remove_email(update.removeEmail);
         edit.add_email(update.addEmail);
         await suprsend.users.edit(edit);
         return { ok: true };

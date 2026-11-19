@@ -99,7 +99,7 @@ describe("draining the outbox", () => {
       idempotencyKey: "question-asked:comment:4:user:2",
       payload: {
         workflow: "question-asked",
-        recipient: { distinct_id: "2", $email: "ina@example.com", name: "Ina" },
+        recipient: { distinct_id: "2", name: "Ina" },
         data: { course_title: "Test Course" },
         link: "/courses/test-course/lessons/3#comment-4",
       },
