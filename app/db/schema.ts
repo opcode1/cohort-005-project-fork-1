@@ -374,3 +374,46 @@ export const videoWatchEvents = sqliteTable("video_watch_events", {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+export enum OutboxKind {
+  Email = "email",
+}
+
+export enum OutboxStatus {
+  Pending = "pending",
+  Sent = "sent",
+  Failed = "failed",
+}
+
+// One message to one recipient, saved in the same transaction as the decision
+// that caused it and sent after commit by the dispatcher (docs/adr/0016).
+// Unrelated to the mailer's `.outbox/` directory.
+export const outbox = sqliteTable(
+  "outbox",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    kind: text("kind").notNull().$type<OutboxKind>(),
+    // Everything the message needs, as it was at commit. The dispatcher looks
+    // nothing up.
+    payload: text("payload", { mode: "json" }).notNull().$type<unknown>(),
+    // Set for SuprSend rows. Postmark has no equivalent.
+    idempotencyKey: text("idempotency_key"),
+    status: text("status")
+      .notNull()
+      .$type<OutboxStatus>()
+      .default(OutboxStatus.Pending),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at").notNull(),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull(),
+    sentAt: text("sent_at"),
+  },
+  // Serves "due pending rows, oldest first".
+  (table) => [
+    index("outbox_due_idx").on(
+      table.status,
+      table.nextAttemptAt,
+      table.createdAt
+    ),
+  ]
+);
