@@ -56,6 +56,7 @@ export function enqueue(tx: Tx | Db, messages: OutboxMessage[], now: Date) {
             : null,
         createdAt: now.toISOString(),
         nextAttemptAt: now.toISOString(),
+        retryWindowStartedAt: now.toISOString(),
       }))
     )
     .run();
@@ -206,7 +207,8 @@ function record(db: Db, row: OutboxRow, result: SendResult, now: Date) {
       ? result.error
       : `${result.status}: ${result.error}`;
 
-  const failingFor = now.getTime() - new Date(row.createdAt).getTime();
+  const failingFor =
+    now.getTime() - new Date(row.retryWindowStartedAt).getTime();
 
   if (!isPermanent(result) && failingFor < GIVE_UP_AFTER_MS) {
     const nextAttemptAt = new Date(now.getTime() + retryDelayMs(attempts));
@@ -230,8 +232,26 @@ const KEEP_SENT_FOR_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Deletes sent messages older than 30 days. Failed messages are kept, so an
- * operator can find them with SQL and re-queue them by setting `status` back
- * to `pending`.
+ * operator can find them with SQL and re-queue them.
+ *
+ * Operator steps, with `sqlite3` on the database file once the cause is
+ * fixed. Find the failed rows:
+ *
+ *   SELECT id, kind, idempotency_key, attempts, last_error, created_at
+ *   FROM outbox WHERE status = 'failed';
+ *
+ * Re-queue them, narrowing the WHERE to the rows you mean. Resetting
+ * `retry_window_started_at` gives each one a fresh 6 hours of retries; left
+ * alone, a re-queued row would fail again on its first retryable error.
+ * Re-sending is safe: a SuprSend trigger keeps its idempotency key.
+ *
+ *   UPDATE outbox
+ *   SET status = 'pending',
+ *       next_attempt_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+ *       retry_window_started_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+ *   WHERE status = 'failed';
+ *
+ * The dispatcher picks them up within 30 seconds.
  */
 export function cleanUpOutbox(db: Db, now: Date) {
   const cutoff = new Date(now.getTime() - KEEP_SENT_FOR_MS);

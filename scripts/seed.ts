@@ -2831,6 +2831,7 @@ This course is still in draft while the cluster examples are rewritten against t
       attempts: 1,
       createdAt: requestedAt,
       nextAttemptAt: requestedAt,
+      retryWindowStartedAt: requestedAt,
       sentAt: requestedAt,
     };
   }
