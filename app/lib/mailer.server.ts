@@ -61,7 +61,8 @@ export function postmarkTransport(serverToken: string): MailTransport {
   };
 }
 
-export function outboxTransport(directory: string): MailTransport {
+/** Writes each email to `directory` (`.outbox/` in local dev) as JSON. */
+export function fileTransport(directory: string): MailTransport {
   return {
     async send(email) {
       mkdirSync(directory, { recursive: true });
@@ -76,5 +77,5 @@ export function outboxTransport(directory: string): MailTransport {
 
 export function defaultTransport(): MailTransport {
   const token = process.env.POSTMARK_SERVER_TOKEN;
-  return token ? postmarkTransport(token) : outboxTransport(".outbox");
+  return token ? postmarkTransport(token) : fileTransport(".outbox");
 }
