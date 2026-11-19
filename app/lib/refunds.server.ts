@@ -16,8 +16,14 @@ import {
   LessonProgressStatus,
   OutboxKind,
   RefundStatus,
+  UserRole,
 } from "~/db/schema";
-import type { Email } from "~/lib/mailer.server";
+import {
+  refundApproved,
+  refundApprovedToInstructor,
+  refundDeclined,
+  refundRaised,
+} from "~/lib/notify.server";
 import { enqueue } from "~/lib/outbox.server";
 import { formatPrice } from "~/lib/utils";
 import {
@@ -356,7 +362,8 @@ export type RaiseResult =
 
 /**
  * Raises a Refund Request and, in the same transaction, saves the Refund
- * requested Confirmation to the buyer for the outbox to send.
+ * requested Confirmation to the buyer and a Notification to every other
+ * Platform Admin for the outbox to send.
  */
 export function raiseRefundRequest(
   db: Db,
@@ -412,6 +419,15 @@ export function raiseRefundRequest(
             ].join("\n"),
           },
         },
+        ...refundRaised(
+          {
+            id: refundRequest.id,
+            courseTitle: course.title,
+            amountPaid: purchase.amountPaid,
+          },
+          buyer,
+          getPlatformAdmins(tx)
+        ),
       ],
       now
     );
@@ -422,6 +438,15 @@ export function raiseRefundRequest(
       kind: kindOf(getSeats(tx, purchase.id)),
     };
   });
+}
+
+function getPlatformAdmins(db: Queryable) {
+  return db
+    .select()
+    .from(users)
+    .where(eq(users.role, UserRole.Admin))
+    .orderBy(asc(users.id))
+    .all();
 }
 
 // ─── Listing Refund Requests ───
@@ -626,6 +651,9 @@ function findOpenRefundRequest(
  *   (docs/adr/0001).
  * - A Team Licence: its Unclaimed Seats can never be claimed. Refused if any
  *   Seat has been claimed (docs/adr/0003).
+ *
+ * In the same transaction, saves the Notifications to the buyer (feed, push
+ * and email) and to the course's Instructor (feed) for the outbox to send.
  */
 export function approveRefundRequest(
   db: Db,
@@ -693,7 +721,22 @@ export function approveRefundRequest(
       .where(eq(refunds.id, refundRequestId))
       .run();
 
-    enqueueDecisionEmail(tx, purchase, RefundStatus.Approved, note, now);
+    const notices = decisionNotices(tx, refundRequestId, purchase, note);
+    enqueue(
+      tx,
+      notices
+        ? [
+            refundApproved(notices.decision, notices.buyer),
+            ...refundApprovedToInstructor(
+              notices.decision,
+              notices.buyer,
+              notices.instructor,
+              platformAdminId
+            ),
+          ]
+        : [],
+      now
+    );
 
     return { ok: true };
   });
@@ -702,7 +745,8 @@ export function approveRefundRequest(
 /**
  * Declines an Open Refund Request. Nothing the Purchase granted is lost, and
  * the buyer may raise a new Refund Request. The note is required: it is how
- * the buyer learns whether another request is worth raising.
+ * the buyer learns whether another request is worth raising. In the same
+ * transaction, saves the Notification to the buyer (feed, push and email).
  */
 export function declineRefundRequest(
   db: Db,
@@ -735,11 +779,15 @@ export function declineRefundRequest(
       .where(eq(refunds.id, refundRequestId))
       .run();
 
-    enqueueDecisionEmail(
+    const notices = decisionNotices(
       tx,
+      refundRequestId,
       found.purchase,
-      RefundStatus.Declined,
-      trimmedNote,
+      trimmedNote
+    );
+    enqueue(
+      tx,
+      notices ? [refundDeclined(notices.decision, notices.buyer)] : [],
       now
     );
 
@@ -748,71 +796,38 @@ export function declineRefundRequest(
 }
 
 /**
- * Saves the email the buyer gets once their Refund Request is decided, in the
- * deciding transaction.
+ * What the Notifications about a decision need: the decision, the buyer and
+ * the course's Instructor, read in the deciding transaction.
  */
-function enqueueDecisionEmail(
+function decisionNotices(
   tx: Tx,
+  refundRequestId: number,
   purchase: Purchase,
-  decision: RefundStatus.Approved | RefundStatus.Declined,
-  note: string | null,
-  now: Date
-) {
-  enqueue(
-    tx,
-    [
-      {
-        kind: OutboxKind.Email,
-        payload: buildDecisionEmail(tx, purchase, decision, note),
-      },
-    ],
-    now
-  );
-}
-
-function buildDecisionEmail(
-  db: Queryable,
-  purchase: Purchase,
-  decision: RefundStatus.Approved | RefundStatus.Declined,
   note: string | null
-): Email {
-  const buyer = db
-    .select()
-    .from(users)
-    .where(eq(users.id, purchase.userId))
-    .get();
-  const course = db
+) {
+  const buyer = tx.select().from(users).where(eq(users.id, purchase.userId)).get();
+  const course = tx
     .select()
     .from(courses)
     .where(eq(courses.id, purchase.courseId))
     .get();
+  const instructor =
+    course &&
+    tx.select().from(users).where(eq(users.id, course.instructorId)).get();
 
-  const courseTitle = course?.title ?? "your course";
-  const noteLines = note ? ["", note] : [];
-
-  const middle =
-    decision === RefundStatus.Approved
-      ? [
-          `We have approved your refund request for "${courseTitle}".`,
-          `${formatPrice(purchase.amountPaid)}, the full amount you paid, is on its way back to you.`,
-          ...noteLines,
-        ]
-      : [
-          `We have looked at your refund request for "${courseTitle}" and decided not to refund it.`,
-          ...noteLines,
-          "",
-          "You still have everything you bought. If something changes, you can raise a new refund request.",
-        ];
+  // Foreign keys keep these present; nothing is sent if one were not.
+  if (!buyer || !course || !instructor) return null;
 
   return {
-    to: buyer?.email ?? "",
-    subject: `Refund ${decision} — ${courseTitle}`,
-    body: [
-      `Hi ${buyer?.name ?? "there"},`,
-      "",
-      ...middle,
-      "",
-      "— The Cadence team",
-    ].join("\n"),
+    buyer,
+    instructor,
+    decision: {
+      id: refundRequestId,
+      courseId: course.id,
+      courseTitle: course.title,
+      amountPaid: purchase.amountPaid,
+      purchaseKind: kindOf(getSeats(tx, purchase.id)),
+      note,
+    },
   };
 }

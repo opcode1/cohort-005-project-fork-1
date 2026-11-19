@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { OutboxKind } from "~/db/schema";
 import { appBaseUrl } from "~/lib/config.server";
 import type { OutboxMessage, SendResult } from "~/lib/outbox.server";
+import { formatPrice } from "~/lib/utils";
 
 // ─── Notify ───
 // The one server-side place that knows about SuprSend (docs/adr/0013). Domain
@@ -36,6 +37,28 @@ import type { OutboxMessage, SendResult } from "~/lib/outbox.server";
 //    it can trigger the web push ask.
 
 export const NOTIFICATIONS = {
+  "refund-raised": {
+    notification: "Refund Request raised",
+    recipient: "every Platform Admin",
+    pushEligible: true,
+  },
+  // Also email: mandatory, no unsubscribe link (docs/adr/0014).
+  "refund-approved": {
+    notification: "Refund Request approved",
+    recipient: "the buyer (Student or Team Admin)",
+    pushEligible: true,
+  },
+  "refund-approved-instructor": {
+    notification: "Refund Request approved",
+    recipient: "the course's Instructor",
+    pushEligible: false,
+  },
+  // Also email: mandatory, no unsubscribe link (docs/adr/0014).
+  "refund-declined": {
+    notification: "Refund Request declined",
+    recipient: "the buyer (Student or Team Admin)",
+    pushEligible: true,
+  },
   "question-asked": {
     notification: "Discussion Question asked",
     recipient: "the course's Instructor",
@@ -45,6 +68,21 @@ export const NOTIFICATIONS = {
     notification: "Discussion Reply posted",
     recipient: "the person who asked the Discussion Question",
     pushEligible: true,
+  },
+  "purchase-made": {
+    notification: "Individual Purchase made",
+    recipient: "the course's Instructor",
+    pushEligible: false,
+  },
+  "team-licence-bought": {
+    notification: "Team Licence bought",
+    recipient: "the course's Instructor",
+    pushEligible: false,
+  },
+  "seat-claimed": {
+    notification: "Seat claimed",
+    recipient: "the Team Admin who bought the Team Licence",
+    pushEligible: false,
   },
 } as const;
 
@@ -108,6 +146,114 @@ function trigger(
     idempotencyKey: idempotencyKey(workflow, record, recordId, to.id),
     payload: { workflow, recipient: recipient(to), data, link },
   };
+}
+
+// ─── Refund Requests ───
+
+/** A Refund Request, with what a Notification about it shows. */
+export type RefundRequestNotice = {
+  id: number;
+  courseTitle: string;
+  amountPaid: number;
+};
+
+/** To each Platform Admin, never the buyer: one row per Platform Admin. */
+export function refundRaised(
+  refundRequest: RefundRequestNotice,
+  buyer: Person,
+  platformAdmins: Person[]
+): OutboxMessage[] {
+  return platformAdmins
+    .filter((admin) => admin.id !== buyer.id)
+    .map((admin) =>
+      trigger(
+        "refund-raised",
+        "refund-request",
+        refundRequest.id,
+        admin,
+        {
+          course_title: refundRequest.courseTitle,
+          buyer_name: buyer.name,
+          amount: formatPrice(refundRequest.amountPaid),
+        },
+        "/admin/refunds"
+      )
+    );
+}
+
+/** A decided Refund Request, with what the Notifications about it show. */
+export type RefundDecisionNotice = RefundRequestNotice & {
+  courseId: number;
+  purchaseKind: "individual_purchase" | "team_licence";
+  note: string | null;
+};
+
+// The buyer sees their Refund Requests on Settings, or a Team Licence's on
+// the team page.
+function linkForBuyer(decision: RefundDecisionNotice) {
+  return decision.purchaseKind === "team_licence" ? "/team" : "/settings";
+}
+
+function decisionData(decision: RefundDecisionNotice) {
+  return {
+    course_title: decision.courseTitle,
+    amount: formatPrice(decision.amountPaid),
+    note: decision.note ?? "",
+  };
+}
+
+/** To the buyer, on feed, push and email. */
+export function refundApproved(
+  decision: RefundDecisionNotice,
+  buyer: Person
+): OutboxMessage {
+  return trigger(
+    "refund-approved",
+    "refund-request",
+    decision.id,
+    buyer,
+    decisionData(decision),
+    linkForBuyer(decision)
+  );
+}
+
+/** To the course's Instructor, unless they decided it themselves. */
+export function refundApprovedToInstructor(
+  decision: RefundDecisionNotice,
+  buyer: Person,
+  instructor: Person,
+  actorId: number
+): OutboxMessage[] {
+  if (instructor.id === actorId) return [];
+  return [
+    trigger(
+      "refund-approved-instructor",
+      "refund-request",
+      decision.id,
+      instructor,
+      {
+        course_title: decision.courseTitle,
+        buyer_name: buyer.name,
+        amount: formatPrice(decision.amountPaid),
+      },
+      `/instructor/${decision.courseId}`
+    ),
+  ];
+}
+
+/** To the buyer, on feed, push and email, with the Platform Admin's note. */
+export function refundDeclined(
+  decision: RefundDecisionNotice,
+  buyer: Person
+): OutboxMessage {
+  return trigger(
+    "refund-declined",
+    "refund-request",
+    decision.id,
+    buyer,
+    decisionData(decision),
+    linkForBuyer(decision)
+  );
 }
 
 // ─── Users ───
@@ -196,6 +342,76 @@ export function replyPosted(
       excerpt: excerpt(reply.body),
     },
     linkToQuestion(reply, questionId)
+  );
+}
+
+// ─── Purchases and Seats ───
+
+/** A Purchase, with what a Notification about it shows. */
+export type CoursePurchase = {
+  id: number;
+  amountPaid: number;
+  courseId: number;
+  courseTitle: string;
+};
+
+function linkToInstructorCourse(courseId: number) {
+  return `/instructor/${courseId}`;
+}
+
+export function purchaseMade(
+  purchase: CoursePurchase,
+  buyer: Person,
+  instructor: Person
+): OutboxMessage {
+  return trigger(
+    "purchase-made",
+    "purchase",
+    purchase.id,
+    instructor,
+    {
+      course_title: purchase.courseTitle,
+      buyer_name: buyer.name,
+      amount: formatPrice(purchase.amountPaid),
+    },
+    linkToInstructorCourse(purchase.courseId)
+  );
+}
+
+export function teamLicenceBought(
+  purchase: CoursePurchase,
+  seatCount: number,
+  teamAdmin: Person,
+  instructor: Person
+): OutboxMessage {
+  return trigger(
+    "team-licence-bought",
+    "purchase",
+    purchase.id,
+    instructor,
+    {
+      course_title: purchase.courseTitle,
+      buyer_name: teamAdmin.name,
+      amount: formatPrice(purchase.amountPaid),
+      seat_count: seatCount,
+    },
+    linkToInstructorCourse(purchase.courseId)
+  );
+}
+
+export function seatClaimed(
+  seatId: number,
+  courseTitle: string,
+  claimant: Person,
+  teamAdmin: Person
+): OutboxMessage {
+  return trigger(
+    "seat-claimed",
+    "seat",
+    seatId,
+    teamAdmin,
+    { course_title: courseTitle, claimant_name: claimant.name },
+    "/team"
   );
 }
 
