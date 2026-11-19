@@ -1,7 +1,7 @@
 import { data } from "react-router";
 import type { Route } from "./+types/api.notification-token";
 import { getCurrentUserId } from "~/lib/session";
-import { notificationFeedFor } from "~/lib/notify.server";
+import { notificationFeedFor } from "~/lib/notification-feed.server";
 import { FEED_USER_HEADER } from "~/lib/notification-feed";
 
 // Refreshes the Notification Feed's user token before it expires. It takes no

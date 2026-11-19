@@ -1,16 +1,19 @@
 import { eq } from "drizzle-orm";
-import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import * as schema from "~/db/schema";
 import { users } from "~/db/schema";
+import type { Db, Queryable } from "~/db/types";
 import { userEmailChanged } from "~/lib/notify.server";
 import { enqueue, readdressUnsentTriggers } from "~/lib/outbox.server";
 
 // ─── Users ───
-// A Platform Admin editing someone's account.
+// Looking up a user, and a Platform Admin editing someone's account.
 //
 // Database first, positional parameters (project convention).
 
-export type Db = BetterSQLite3Database<typeof schema>;
+export function getUser(db: Queryable, userId: number) {
+  return db.select().from(users).where(eq(users.id, userId)).get();
+}
+
+export type User = NonNullable<ReturnType<typeof getUser>>;
 
 export type UpdateUserResult =
   { ok: true } | { ok: false; status: 404; error: string };
@@ -28,7 +31,7 @@ export function updateUserDetails(
   now: Date
 ): UpdateUserResult {
   return db.transaction((tx): UpdateUserResult => {
-    const user = tx.select().from(users).where(eq(users.id, userId)).get();
+    const user = getUser(tx, userId);
     if (!user) {
       return { ok: false, status: 404, error: "User not found." };
     }

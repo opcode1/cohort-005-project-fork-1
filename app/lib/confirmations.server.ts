@@ -1,5 +1,6 @@
 import { OutboxKind } from "~/db/schema";
 import type { OutboxMessage } from "~/lib/outbox.server";
+import type { Person } from "~/lib/person";
 import { formatPrice } from "~/lib/utils";
 
 // ─── Confirmations ───
@@ -8,7 +9,6 @@ import { formatPrice } from "~/lib/utils";
 // mailer's transport (docs/adr/0014). Domain functions `enqueue` what these
 // return inside their transaction (docs/adr/0016).
 
-type Person = { name: string; email: string };
 type Course = { title: string };
 
 function email(to: Person, subject: string, lines: string[]): OutboxMessage {
@@ -16,6 +16,24 @@ function email(to: Person, subject: string, lines: string[]): OutboxMessage {
     kind: OutboxKind.Email,
     payload: { to: to.email, subject, body: lines.join("\n") },
   };
+}
+
+/** Refund requested, to the buyer who raised the Refund Request. */
+export function refundRequestedConfirmation(
+  buyer: Person,
+  course: Course,
+  amountPaid: number
+) {
+  return email(buyer, `Refund requested — ${course.title}`, [
+    `Hi ${buyer.name},`,
+    "",
+    `We have your refund request for "${course.title}".`,
+    `The refund is for ${formatPrice(amountPaid)}, the amount you paid.`,
+    "",
+    "Our team reviews every refund request by hand. You do not need to do anything else — we will email you again when it is done.",
+    "",
+    "— The Cadence team",
+  ]);
 }
 
 /**

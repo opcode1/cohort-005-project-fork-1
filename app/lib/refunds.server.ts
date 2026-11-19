@@ -1,7 +1,5 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { alias } from "drizzle-orm/sqlite-core";
-import * as schema from "~/db/schema";
 import {
   coupons,
   courses,
@@ -14,10 +12,11 @@ import {
   users,
   videoWatchEvents,
   LessonProgressStatus,
-  OutboxKind,
   RefundStatus,
   UserRole,
 } from "~/db/schema";
+import type { Db, Queryable, Tx } from "~/db/types";
+import { refundRequestedConfirmation } from "~/lib/confirmations.server";
 import {
   refundApproved,
   refundApprovedToInstructor,
@@ -25,7 +24,7 @@ import {
   refundRaised,
 } from "~/lib/notify.server";
 import { enqueue } from "~/lib/outbox.server";
-import { formatPrice } from "~/lib/utils";
+import { getUser } from "~/lib/users.server";
 import {
   REFUND_COMPLETION_LIMIT,
   REFUND_WATCH_LIMIT_SECONDS,
@@ -40,10 +39,6 @@ import {
 //
 // Every function takes the database first, so tests can hand in an in-memory
 // one. Uses positional parameters (project convention).
-
-export type Db = BetterSQLite3Database<typeof schema>;
-type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
-type Queryable = Db | Tx;
 
 type Purchase = typeof purchases.$inferSelect;
 type Seat = typeof coupons.$inferSelect;
@@ -377,7 +372,7 @@ export function raiseRefundRequest(
     if (!check.ok) return check;
 
     const { purchase } = check;
-    const buyer = tx.select().from(users).where(eq(users.id, buyerId)).get();
+    const buyer = getUser(tx, buyerId);
     const course = tx
       .select()
       .from(courses)
@@ -402,23 +397,7 @@ export function raiseRefundRequest(
     enqueue(
       tx,
       [
-        {
-          kind: OutboxKind.Email,
-          payload: {
-            to: buyer.email,
-            subject: `Refund requested — ${course.title}`,
-            body: [
-              `Hi ${buyer.name},`,
-              "",
-              `We have your refund request for "${course.title}".`,
-              `The refund is for ${formatPrice(purchase.amountPaid)}, the amount you paid.`,
-              "",
-              "Our team reviews every refund request by hand. You do not need to do anything else — we will email you again when it is done.",
-              "",
-              "— The Cadence team",
-            ].join("\n"),
-          },
-        },
+        refundRequestedConfirmation(buyer, course, purchase.amountPaid),
         ...refundRaised(
           {
             id: refundRequest.id,
@@ -811,15 +790,13 @@ function decisionNotices(
   purchase: Purchase,
   note: string | null
 ) {
-  const buyer = tx.select().from(users).where(eq(users.id, purchase.userId)).get();
+  const buyer = getUser(tx, purchase.userId);
   const course = tx
     .select()
     .from(courses)
     .where(eq(courses.id, purchase.courseId))
     .get();
-  const instructor =
-    course &&
-    tx.select().from(users).where(eq(users.id, course.instructorId)).get();
+  const instructor = course && getUser(tx, course.instructorId);
 
   // Foreign keys keep these present; nothing is sent if one were not.
   if (!buyer || !course || !instructor) return null;

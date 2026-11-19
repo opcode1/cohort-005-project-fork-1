@@ -124,6 +124,30 @@ describe("draining the outbox", () => {
     ]);
   });
 
+  it("fails a message at once, without sending it, when its saved payload can't be read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    db.insert(schema.outbox)
+      .values({
+        kind: OutboxKind.SuprsendTrigger,
+        payload: { workflow: "no-such-workflow" },
+        idempotencyKey: "no-such-workflow:comment:1:user:1",
+        createdAt: CREATED.toISOString(),
+        nextAttemptAt: CREATED.toISOString(),
+        retryWindowStartedAt: CREATED.toISOString(),
+      })
+      .run();
+    const { sender, messages } = fakeSender();
+
+    await drainOutbox(db, sender, at(SECOND));
+
+    expect(messages).toEqual([]);
+    expect(onlyRow()).toMatchObject({
+      status: OutboxStatus.Failed,
+      attempts: 1,
+      lastError: expect.stringContaining("payload"),
+    });
+  });
+
   it.each([400, 404])("fails a message at once on a %i", async (status) => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     enqueue(db, [email("liam@example.com")], CREATED);

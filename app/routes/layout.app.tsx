@@ -9,7 +9,7 @@ import { getCurrentUserId, getDevCountry } from "~/lib/session";
 import {
   notificationFeedFor,
   type NotificationFeedSession,
-} from "~/lib/notify.server";
+} from "~/lib/notification-feed.server";
 import { getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
 import { eq, and, or, sql, desc } from "drizzle-orm";
 import { db } from "~/db";

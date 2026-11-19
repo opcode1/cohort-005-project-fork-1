@@ -79,7 +79,7 @@ export const NOTIFICATIONS = {
 
 export type WorkflowSlug = keyof typeof NOTIFICATIONS;
 
-function isWorkflowSlug(tag: string): tag is WorkflowSlug {
+export function isWorkflowSlug(tag: string): tag is WorkflowSlug {
   return Object.hasOwn(NOTIFICATIONS, tag);
 }
 

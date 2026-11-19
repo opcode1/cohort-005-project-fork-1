@@ -1,7 +1,5 @@
 import crypto from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import * as schema from "~/db/schema";
 import {
   coupons,
   courses,
@@ -10,23 +8,21 @@ import {
   teamMembers,
   teams,
   TeamMemberRole,
-  users,
 } from "~/db/schema";
+import type { Db, Tx } from "~/db/types";
 import {
   enrollmentWelcome,
   teamLicenceBoughtConfirmation,
 } from "~/lib/confirmations.server";
 import { purchaseMade, teamLicenceBought } from "~/lib/notify.server";
 import { enqueue, type OutboxMessage } from "~/lib/outbox.server";
+import { getUser, type User } from "~/lib/users.server";
 
 // ─── Purchases ───
 // Making an Individual Purchase and buying a Team Licence. See GLOSSARY.md for
 // Purchase, Individual Purchase, Team Licence and Seat.
 //
 // Database first, positional parameters (project convention).
-
-export type Db = BetterSQLite3Database<typeof schema>;
-type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 export type PurchaseResult =
   | { ok: true; purchaseId: number }
@@ -50,11 +46,6 @@ function getCourse(tx: Tx, courseId: number) {
 
 type Course = NonNullable<ReturnType<typeof getCourse>>;
 type Purchase = typeof purchases.$inferSelect;
-type User = typeof users.$inferSelect;
-
-function getUser(tx: Tx, userId: number) {
-  return tx.select().from(users).where(eq(users.id, userId)).get();
-}
 
 /**
  * The course's Instructor hears about each Purchase of it, unless they are
