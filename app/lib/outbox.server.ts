@@ -8,6 +8,12 @@ import {
   type Email,
   type MailTransport,
 } from "~/lib/mailer.server";
+import {
+  defaultNotifyTransport,
+  type NotifyTransport,
+  type SuprsendTrigger,
+  type SuprsendUserUpdate,
+} from "~/lib/notify.server";
 
 // ─── Outbox ───
 // Every message Cadence sends leaves through here (docs/adr/0016). A domain
@@ -21,7 +27,16 @@ export type Db = BetterSQLite3Database<typeof schema>;
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /** One message to one recipient, with everything it needs to be sent. */
-export type OutboxMessage = { kind: OutboxKind.Email; payload: Email };
+export type OutboxMessage =
+  | { kind: OutboxKind.Email; payload: Email }
+  | {
+      kind: OutboxKind.SuprsendTrigger;
+      payload: SuprsendTrigger;
+      // Comes from the domain record, never a timestamp, so a retry or a
+      // re-queue can't send the same Notification twice.
+      idempotencyKey: string;
+    }
+  | { kind: OutboxKind.SuprsendUserUpdate; payload: SuprsendUserUpdate };
 
 /**
  * Saves messages inside the caller's transaction, due at once, and wakes the
@@ -35,6 +50,10 @@ export function enqueue(tx: Tx | Db, messages: OutboxMessage[], now: Date) {
       messages.map((message) => ({
         kind: message.kind,
         payload: message.payload,
+        idempotencyKey:
+          message.kind === OutboxKind.SuprsendTrigger
+            ? message.idempotencyKey
+            : null,
         createdAt: now.toISOString(),
         nextAttemptAt: now.toISOString(),
       }))
@@ -76,7 +95,16 @@ function nextDueRow(db: Db, now: Date): OutboxRow | undefined {
 }
 
 function toMessage(row: OutboxRow): OutboxMessage {
-  return { kind: row.kind, payload: row.payload } as OutboxMessage;
+  // The payload went in as the message's own, so it comes back out as one.
+  return (
+    row.kind === OutboxKind.SuprsendTrigger
+      ? {
+          kind: row.kind,
+          payload: row.payload,
+          idempotencyKey: row.idempotencyKey,
+        }
+      : { kind: row.kind, payload: row.payload }
+  ) as OutboxMessage;
 }
 
 /**
@@ -195,11 +223,20 @@ export function cleanUpOutbox(db: Db, now: Date) {
 
 /** Sends each kind of message through its transport. */
 export function defaultSender(
-  transport: MailTransport = defaultTransport()
+  transport: MailTransport = defaultTransport(),
+  notify: NotifyTransport = defaultNotifyTransport()
 ): OutboxSender {
   return {
     async send(message, signal) {
       switch (message.kind) {
+        case OutboxKind.SuprsendTrigger:
+          return notify.trigger(
+            message.payload,
+            message.idempotencyKey,
+            signal
+          );
+        case OutboxKind.SuprsendUserUpdate:
+          return notify.updateUser(message.payload, signal);
         case OutboxKind.Email:
           try {
             await transport.send(message.payload, signal);

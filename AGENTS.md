@@ -11,6 +11,7 @@ Do these checks in this order before you report a change to `app/` as complete:
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | 401 "Select a user from the DevUI panel"        | No user in the session — switch users and country in the floating panel (`app/components/dev-ui.tsx`). |
 | `tsc` reports every `./+types/*` import missing | Typegen has not run. Use `npm run typecheck`, which runs `react-router typegen` first.                 |
+| After `npm run db:seed`, a Notification never arrives, or a SuprSend Staging feed shows old items | Expected. Ids repeat after a reseed, so idempotency keys repeat: SuprSend drops a trigger whose key it saw in the last 24 hours, and Staging feeds keep items from earlier seeds. |
 
 ## Agent skills
 

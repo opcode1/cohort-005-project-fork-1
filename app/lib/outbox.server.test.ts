@@ -35,13 +35,15 @@ function email(to: string): OutboxMessage {
 /** A sender that answers each message with the next scripted result. */
 function fakeSender(...results: SendResult[]) {
   const sent: string[] = [];
+  const messages: OutboxMessage[] = [];
   const sender: OutboxSender = {
     async send(message) {
-      sent.push(message.payload.to);
+      messages.push(message);
+      if (message.kind === OutboxKind.Email) sent.push(message.payload.to);
       return results.shift() ?? { ok: true };
     },
   };
-  return { sender, sent };
+  return { sender, sent, messages };
 }
 
 let db: TestDb;
@@ -77,6 +79,37 @@ describe("draining the outbox", () => {
       attempts: 1,
       sentAt: at(SECOND).toISOString(),
     });
+  });
+
+  it("hands SuprSend messages to the sender as they were saved, key and all", async () => {
+    const trigger: OutboxMessage = {
+      kind: OutboxKind.SuprsendTrigger,
+      idempotencyKey: "question-asked:comment:4:user:2",
+      payload: {
+        workflow: "question-asked",
+        recipient: { distinct_id: "2", $email: "ina@example.com", name: "Ina" },
+        data: { course_title: "Test Course" },
+        link: "/courses/test-course/lessons/3#comment-4",
+      },
+    };
+    const userUpdate: OutboxMessage = {
+      kind: OutboxKind.SuprsendUserUpdate,
+      payload: {
+        distinct_id: "7",
+        removeEmail: "old@example.com",
+        addEmail: "new@example.com",
+      },
+    };
+    enqueue(db, [trigger, userUpdate], CREATED);
+    const { sender, messages } = fakeSender();
+
+    await drainOutbox(db, sender, at(SECOND));
+
+    expect(messages).toEqual([trigger, userUpdate]);
+    expect(rows().map((row) => row.idempotencyKey)).toEqual([
+      "question-asked:comment:4:user:2",
+      null,
+    ]);
   });
 
   it.each([400, 404])("fails a message at once on a %i", async (status) => {
@@ -212,7 +245,7 @@ describe("draining the outbox", () => {
         inFlight++;
         mostInFlight = Math.max(mostInFlight, inFlight);
         await new Promise((resolve) => setTimeout(resolve, 1));
-        sent.push(message.payload.to);
+        if (message.kind === OutboxKind.Email) sent.push(message.payload.to);
         inFlight--;
         return { ok: true };
       },

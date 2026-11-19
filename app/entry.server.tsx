@@ -7,7 +7,12 @@ import { isbot } from "isbot";
 import type { RenderToPipeableStreamOptions } from "react-dom/server";
 import { renderToPipeableStream } from "react-dom/server";
 import { db } from "~/db";
+import { assertProductionConfig } from "~/lib/config.server";
 import { startOutboxDispatcher } from "~/lib/outbox.server";
+
+// Production refuses to boot without its SuprSend and Postmark keys, rather
+// than quietly writing Notifications and Confirmations to disk.
+assertProductionConfig(process.env);
 
 // Sends what domain functions save to the outbox (docs/adr/0016). This module
 // is loaded once when the server boots, and the dispatcher guards itself

@@ -34,6 +34,18 @@ beforeEach(() => {
   );
 });
 
+function addStudent(name: string) {
+  return db
+    .insert(schema.users)
+    .values({
+      name,
+      email: `${name.toLowerCase()}@example.com`,
+      role: UserRole.Student,
+    })
+    .returning()
+    .get();
+}
+
 function getComment(id: number) {
   return db
     .select()
@@ -130,5 +142,130 @@ describe("postComment", () => {
       error: "Lesson not found",
     });
     expect(db.select().from(schema.comments).all()).toEqual([]);
+  });
+});
+
+function outboxRows() {
+  return db
+    .select({
+      kind: schema.outbox.kind,
+      idempotencyKey: schema.outbox.idempotencyKey,
+      payload: schema.outbox.payload,
+      status: schema.outbox.status,
+    })
+    .from(schema.outbox)
+    .orderBy(schema.outbox.id)
+    .all();
+}
+
+describe("postComment's Notifications", () => {
+  it("tells the course's Instructor about a Discussion Question", () => {
+    const questionId = postOk(base.user.id, null, "How do I start?");
+
+    expect(outboxRows()).toEqual([
+      {
+        kind: "suprsend_trigger",
+        idempotencyKey: `question-asked:comment:${questionId}:user:${base.instructor.id}`,
+        status: "pending",
+        payload: {
+          workflow: "question-asked",
+          recipient: {
+            distinct_id: String(base.instructor.id),
+            $email: "instructor@example.com",
+            name: "Test Instructor",
+          },
+          data: {
+            course_title: "Test Course",
+            lesson_title: "Lesson 1",
+            asker_name: "Test User",
+            excerpt: "How do I start?",
+          },
+          link: `/courses/test-course/lessons/${lessonId}#comment-${questionId}`,
+        },
+      },
+    ]);
+  });
+
+  it("tells the asker about a Discussion Reply, linking to their question", () => {
+    const questionId = postOk(base.user.id, null, "How do I start?");
+    const replyId = postOk(base.instructor.id, questionId, "Open lesson 1.");
+
+    expect(outboxRows().at(-1)).toEqual({
+      kind: "suprsend_trigger",
+      idempotencyKey: `reply-posted:comment:${replyId}:user:${base.user.id}`,
+      status: "pending",
+      payload: {
+        workflow: "reply-posted",
+        recipient: {
+          distinct_id: String(base.user.id),
+          $email: "test@example.com",
+          name: "Test User",
+        },
+        data: {
+          course_title: "Test Course",
+          lesson_title: "Lesson 1",
+          replier_name: "Test Instructor",
+          excerpt: "Open lesson 1.",
+        },
+        link: `/courses/test-course/lessons/${lessonId}#comment-${questionId}`,
+      },
+    });
+  });
+
+  it("tells the asker about a Discussion Reply by another Student", () => {
+    const questionId = postOk(base.user.id, null, "How do I start?");
+    const classmate = addStudent("Sam");
+    const replyId = postOk(classmate.id, questionId, "Same question!");
+
+    expect(outboxRows().map((row) => row.idempotencyKey)).toEqual([
+      `question-asked:comment:${questionId}:user:${base.instructor.id}`,
+      `reply-posted:comment:${replyId}:user:${base.user.id}`,
+    ]);
+  });
+
+  it("tells no one about the Instructor's own top-level comment", () => {
+    postOk(base.instructor.id, null, "Welcome to the lesson!");
+
+    expect(outboxRows()).toEqual([]);
+  });
+
+  it("tells no one when the asker replies to their own question", () => {
+    const questionId = postOk(base.user.id, null, "How do I start?");
+    postOk(base.user.id, questionId, "Never mind, found it.");
+
+    expect(outboxRows().map((row) => row.payload)).toMatchObject([
+      { workflow: "question-asked" },
+    ]);
+  });
+
+  it("tells no one about a reply under the Instructor's own top-level comment", () => {
+    const announcementId = postOk(base.instructor.id, null, "Welcome!");
+    postOk(base.user.id, announcementId, "Thanks!");
+
+    expect(outboxRows()).toEqual([]);
+  });
+
+  it("writes no row when the comment is refused", () => {
+    const questionId = postOk(base.user.id, null, "How do I start?");
+    const replyId = postOk(base.instructor.id, questionId, "Open lesson 1.");
+    const before = outboxRows().length;
+
+    post(base.user.id, replyId, "Thanks!");
+    post(base.user.id, null, "   ");
+
+    expect(outboxRows()).toHaveLength(before);
+  });
+
+  it("shortens a long comment to a one-line excerpt", () => {
+    const body = `First line\n\n${"word ".repeat(60)}`;
+    postOk(base.user.id, null, body);
+
+    const [row] = outboxRows();
+    expect(row.payload).toMatchObject({
+      data: {
+        // 139 characters, then the ellipsis.
+        excerpt: `First line ${"word ".repeat(25)}wor…`,
+      },
+    });
   });
 });
