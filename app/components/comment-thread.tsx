@@ -70,6 +70,13 @@ function CommentForm({
 
     if (fetcher.data.ok) {
       if (intent === "create-comment") setBody("");
+      // PROTOTYPE (web push prompt): a top-level comment is a Discussion
+      // Question, the "you're now waiting for an answer" moment.
+      if (intent === "create-comment" && parentId === undefined) {
+        window.dispatchEvent(
+          new CustomEvent("prototype:push-moment", { detail: "question" })
+        );
+      }
       onDone?.();
     }
     // onDone is recreated each render by callers; depending on it would loop.

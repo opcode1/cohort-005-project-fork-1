@@ -60,3 +60,46 @@ export async function prototypeNotifyQuestionAsked(input: {
     console.error("[notifications-prototype] trigger failed", err);
   }
 }
+
+// ---------- PROTOTYPE (wayfinder: "Prototype the web push permission prompt") ----------
+// Secure mode: mint the ES256 user token ADR 0015 describes, so we can check that
+// SuprSend's service worker still delivers pushes and records clicks with it on.
+import { createPrivateKey, sign, type KeyObject } from "node:crypto";
+
+let signingKey: KeyObject | null | undefined;
+
+function loadSigningKey(): KeyObject | null {
+  if (signingKey !== undefined) return signingKey;
+  let raw = process.env.SUPRSEND_SIGNING_KEY?.trim().replace(/^['"]|['"]$/g, "");
+  signingKey = null;
+  if (!raw) return null;
+  raw = raw.replace(/\\n/g, "\n");
+  try {
+    if (!raw.includes("BEGIN")) {
+      const decoded = Buffer.from(raw, "base64");
+      const text = decoded.toString("utf8");
+      signingKey = text.includes("BEGIN")
+        ? createPrivateKey(text)
+        : createPrivateKey({ key: decoded, format: "der", type: "pkcs8" });
+    } else {
+      signingKey = createPrivateKey(raw);
+    }
+  } catch (err) {
+    console.error("[notifications-prototype] SUPRSEND_SIGNING_KEY unreadable", err);
+  }
+  return signingKey;
+}
+
+const b64url = (s: string | Buffer) => Buffer.from(s).toString("base64url");
+
+export function prototypeMintUserToken(distinctId: string): string | null {
+  const key = loadSigningKey();
+  if (!key) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const head = b64url(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+  const body = b64url(
+    JSON.stringify({ entity_type: "subscriber", entity_id: distinctId, iat: now, exp: now + 3600 })
+  );
+  const sig = sign("sha256", Buffer.from(`${head}.${body}`), { key, dsaEncoding: "ieee-p1363" });
+  return `${head}.${body}.${b64url(sig)}`;
+}

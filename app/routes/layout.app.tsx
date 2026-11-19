@@ -3,11 +3,13 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import {
   getSuprSendClientConfig,
   prototypeDistinctId,
+  prototypeMintUserToken,
 } from "~/lib/notifications-prototype.server";
 
-// PROTOTYPE: Notification Feed variants, client-only (SuprSend needs window).
-const NotificationFeedPrototype = lazy(
-  () => import("~/components/notification-feed-prototype.client")
+// PROTOTYPE: web push permission prompt variants on top of the chosen feed
+// drawer, client-only (SuprSend needs window).
+const WebPushPromptPrototype = lazy(
+  () => import("~/components/web-push-prompt-prototype.client")
 );
 import type { Route } from "./+types/layout.app";
 import { Sidebar } from "~/components/sidebar";
@@ -224,7 +226,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     countries: COUNTRIES,
     isTeamAdmin: currentUserId ? isTeamAdmin(currentUserId) : false,
     suprsend: currentUser
-      ? { ...getSuprSendClientConfig(), distinctId: prototypeDistinctId(currentUser.id) }
+      ? {
+          ...getSuprSendClientConfig(),
+          distinctId: prototypeDistinctId(currentUser.id),
+          userToken: prototypeMintUserToken(prototypeDistinctId(currentUser.id)),
+        }
       : null,
   };
 }
@@ -262,10 +268,11 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
       />
       {hydrated && currentUser && suprsend?.publicApiKey && (
         <Suspense fallback={null}>
-          <NotificationFeedPrototype
+          <WebPushPromptPrototype
             publicApiKey={suprsend.publicApiKey}
             vapidKey={suprsend.vapidKey}
             distinctId={suprsend.distinctId}
+            userToken={suprsend.userToken}
             userName={currentUser.name}
             role={userIsTeamAdmin ? `${currentUser.role} + Team Admin` : currentUser.role}
           />

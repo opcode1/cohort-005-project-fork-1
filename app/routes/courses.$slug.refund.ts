@@ -74,5 +74,8 @@ export async function action({ params, request }: Route.ActionArgs) {
 
   await sendEmail(result.email);
 
-  return redirect(result.kind === "team_licence" ? "/team" : "/settings");
+  // PROTOTYPE (web push prompt): flag the "just raised a Refund Request" moment.
+  return redirect(
+    (result.kind === "team_licence" ? "/team" : "/settings") + "?pushMoment=refund"
+  );
 }

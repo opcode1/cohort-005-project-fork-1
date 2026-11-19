@@ -54,4 +54,6 @@ export default [
   route("api/logout", "routes/api.logout.ts"),
   route("api/video-tracking", "routes/api.video-tracking.ts"),
   route("api/set-dev-country", "routes/api.set-dev-country.ts"),
+  // PROTOTYPE: web push permission prompt (secure-mode token refresh).
+  route("api/notification-token", "routes/api.notification-token.ts"),
 ] satisfies RouteConfig;
