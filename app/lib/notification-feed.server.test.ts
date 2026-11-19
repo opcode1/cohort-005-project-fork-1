@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   mintUserToken,
   notificationFeedFor,
+  serviceWorkerScript,
 } from "./notification-feed.server";
 
 function decodeSegment(segment: string) {
@@ -103,5 +104,23 @@ describe("user tokens for the Notification Feed (secure mode)", () => {
       distinctId: null,
       userToken: null,
     });
+  });
+});
+
+// The browser's push service worker reports each push delivered and clicked
+// to SuprSend, which needs this environment's public key to record them.
+describe("the push service worker", () => {
+  it("starts SuprSend's worker with this environment's public key", () => {
+    const script = serviceWorkerScript({ SUPRSEND_PUBLIC_API_KEY: "public" });
+
+    expect(script).toContain("addEventListener('push'");
+    expect(script.trimEnd().endsWith('initSuprSend("public");')).toBe(true);
+  });
+
+  it("still shows pushes without a public key, but reports nothing", () => {
+    const script = serviceWorkerScript({});
+
+    expect(script).toContain("addEventListener('push'");
+    expect(script).not.toContain('initSuprSend("');
   });
 });

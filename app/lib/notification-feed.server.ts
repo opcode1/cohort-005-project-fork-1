@@ -1,4 +1,5 @@
 import { createPrivateKey, sign } from "node:crypto";
+import suprsendServiceWorker from "./suprsend-serviceworker.js?raw";
 import { errorMessage } from "~/lib/utils";
 
 // ─── Notification Feed sessions ───
@@ -93,4 +94,19 @@ function userTokenFor(
     );
     return null;
   }
+}
+
+// ─── Push service worker ───
+// SuprSend's own worker (copied unchanged from @suprsend/web-sdk's
+// public/serviceworker.js) shows each push and reports it delivered or
+// clicked. It reports with the public key, which differs per environment, so
+// the worker is served from a route rather than a fixed public/ file.
+
+/** The service worker script, started with this environment's public key. */
+export function serviceWorkerScript(
+  env: Record<string, string | undefined> = process.env
+) {
+  const publicApiKey = env.SUPRSEND_PUBLIC_API_KEY;
+  if (!publicApiKey) return suprsendServiceWorker;
+  return `${suprsendServiceWorker}\ninitSuprSend(${JSON.stringify(publicApiKey)});\n`;
 }
