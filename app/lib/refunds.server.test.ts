@@ -151,6 +151,7 @@ function outboxRows() {
   return db
     .select({
       kind: schema.outbox.kind,
+      idempotencyKey: schema.outbox.idempotencyKey,
       payload: schema.outbox.payload,
       status: schema.outbox.status,
       createdAt: schema.outbox.createdAt,
@@ -159,6 +160,30 @@ function outboxRows() {
     .from(schema.outbox)
     .orderBy(schema.outbox.id)
     .all();
+}
+
+function emails() {
+  return outboxRows()
+    .filter((row) => row.kind === "email")
+    .map(({ idempotencyKey: _, ...row }) => row);
+}
+
+function triggers() {
+  return outboxRows()
+    .filter((row) => row.kind === "suprsend_trigger")
+    .map(({ idempotencyKey, payload }) => ({ idempotencyKey, payload }));
+}
+
+function addPlatformAdmin(name: string) {
+  return db
+    .insert(schema.users)
+    .values({
+      name,
+      email: `${name.toLowerCase()}@example.com`,
+      role: UserRole.Admin,
+    })
+    .returning()
+    .get();
 }
 
 function getSeat(seatId: number) {
@@ -186,7 +211,7 @@ describe("raising a Refund Request", () => {
     const result = raiseRefundRequest(db, purchase.id, base.user.id, "Nope.", NOW);
 
     expect(result).not.toHaveProperty("email");
-    expect(outboxRows()).toEqual([
+    expect(emails()).toEqual([
       {
         kind: "email",
         status: "pending",
@@ -203,7 +228,45 @@ describe("raising a Refund Request", () => {
     ]);
   });
 
-  it("saves no email when the Refund Request is refused", () => {
+  it("notifies every Platform Admin, on feed and push, with a link to the Refunds page", () => {
+    const sam = addPlatformAdmin("Sam");
+    const purchase = buyForSelf(base.user.id);
+
+    const id = raise(purchase.id, base.user.id);
+
+    expect(triggers()).toEqual(
+      [platformAdmin, sam].map((admin) => ({
+        idempotencyKey: `refund-raised:refund-request:${id}:user:${admin.id}`,
+        payload: {
+          workflow: "refund-raised",
+          recipient: {
+            distinct_id: String(admin.id),
+            $email: admin.email,
+            name: admin.name,
+          },
+          data: {
+            course_title: "Test Course",
+            buyer_name: "Test User",
+            amount: "$79.00",
+          },
+          link: "/admin/refunds",
+        },
+      }))
+    );
+  });
+
+  it("does not notify a Platform Admin who raised the Refund Request", () => {
+    const sam = addPlatformAdmin("Sam");
+    const purchase = buyForSelf(platformAdmin.id);
+
+    const id = raise(purchase.id, platformAdmin.id);
+
+    expect(triggers().map((row) => row.idempotencyKey)).toEqual([
+      `refund-raised:refund-request:${id}:user:${sam.id}`,
+    ]);
+  });
+
+  it("writes no rows when the Refund Request is refused", () => {
     const purchase = buyForSelf(base.user.id);
     raise(purchase.id, base.user.id);
     const before = outboxRows().length;
@@ -404,29 +467,83 @@ describe("approving a Refund Request", () => {
     });
   });
 
-  it("saves an email to the buyer that the refund is on its way", () => {
+  it("notifies the buyer and the course's Instructor, and saves no email", () => {
     const purchase = buyForSelf(base.user.id);
     const id = raise(purchase.id, base.user.id);
+    const before = outboxRows().length;
 
     const result = approveRefundRequest(db, id, platformAdmin.id, null, NOW);
 
     expect(result).toEqual({ ok: true });
-    expect(outboxRows().at(-1)).toEqual({
-      kind: "email",
-      status: "pending",
-      createdAt: NOW.toISOString(),
-      nextAttemptAt: NOW.toISOString(),
-      payload: {
-        to: "test@example.com",
-        subject: "Refund approved — Test Course",
-        body: expect.stringContaining(
-          "$79.00, the full amount you paid, is on its way back to you."
-        ),
+    expect(outboxRows().slice(before).map(({ kind }) => kind)).toEqual([
+      "suprsend_trigger",
+      "suprsend_trigger",
+    ]);
+    expect(triggers().slice(-2)).toEqual([
+      {
+        idempotencyKey: `refund-approved:refund-request:${id}:user:${base.user.id}`,
+        payload: {
+          workflow: "refund-approved",
+          recipient: {
+            distinct_id: String(base.user.id),
+            $email: "test@example.com",
+            name: "Test User",
+          },
+          data: { course_title: "Test Course", amount: "$79.00", note: "" },
+          link: "/settings",
+        },
       },
+      {
+        idempotencyKey: `refund-approved-instructor:refund-request:${id}:user:${base.instructor.id}`,
+        payload: {
+          workflow: "refund-approved-instructor",
+          recipient: {
+            distinct_id: String(base.instructor.id),
+            $email: "instructor@example.com",
+            name: "Test Instructor",
+          },
+          data: {
+            course_title: "Test Course",
+            buyer_name: "Test User",
+            amount: "$79.00",
+          },
+          link: `/instructor/${base.course.id}`,
+        },
+      },
+    ]);
+  });
+
+  it("links a Team Admin buyer to the team page, with the Platform Admin's note", () => {
+    const priya = addLearner("Priya");
+    const { purchase } = buySeats(priya.id, 2);
+    const id = raise(purchase.id, priya.id);
+
+    approveRefundRequest(db, id, platformAdmin.id, "Sorry it didn't work out.", NOW);
+
+    expect(triggers().at(-2)?.payload).toMatchObject({
+      workflow: "refund-approved",
+      recipient: { distinct_id: String(priya.id) },
+      data: { amount: "$158.00", note: "Sorry it didn't work out." },
+      link: "/team",
     });
   });
 
-  it("saves no email when the approval is refused", () => {
+  it("does not notify an Instructor who approved it themselves", () => {
+    db.update(schema.courses)
+      .set({ instructorId: platformAdmin.id })
+      .where(eq(schema.courses.id, base.course.id))
+      .run();
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+
+    approveRefundRequest(db, id, platformAdmin.id, null, NOW);
+
+    expect(triggers().map((row) => row.idempotencyKey)).not.toContainEqual(
+      expect.stringMatching(/^refund-approved-instructor:/)
+    );
+  });
+
+  it("writes no rows when the approval is refused", () => {
     const priya = addLearner("Priya");
     const { purchase, seats } = buySeats(priya.id, 2);
     const id = raise(purchase.id, priya.id);
@@ -473,24 +590,36 @@ describe("declining a Refund Request", () => {
     expect(checkRefundRequest(db, purchase.id, base.user.id, NOW).ok).toBe(true);
   });
 
-  it("saves an email to the buyer with the Platform Admin's note", () => {
+  it("notifies the buyer with the Platform Admin's note, and saves no email", () => {
     const purchase = buyForSelf(base.user.id);
     const id = raise(purchase.id, base.user.id);
+    const before = outboxRows().length;
 
-    declineRefundRequest(db, id, platformAdmin.id, "You finished the course.", NOW);
+    declineRefundRequest(db, id, platformAdmin.id, "  You finished the course. ", NOW);
 
-    expect(outboxRows().at(-1)).toMatchObject({
-      kind: "email",
-      status: "pending",
+    expect(outboxRows().slice(before).map(({ kind }) => kind)).toEqual([
+      "suprsend_trigger",
+    ]);
+    expect(triggers().at(-1)).toEqual({
+      idempotencyKey: `refund-declined:refund-request:${id}:user:${base.user.id}`,
       payload: {
-        to: "test@example.com",
-        subject: "Refund declined — Test Course",
-        body: expect.stringContaining("You finished the course."),
+        workflow: "refund-declined",
+        recipient: {
+          distinct_id: String(base.user.id),
+          $email: "test@example.com",
+          name: "Test User",
+        },
+        data: {
+          course_title: "Test Course",
+          amount: "$79.00",
+          note: "You finished the course.",
+        },
+        link: "/settings",
       },
     });
   });
 
-  it("saves no email when the decline is refused", () => {
+  it("writes no rows when the decline is refused", () => {
     const purchase = buyForSelf(base.user.id);
     const id = raise(purchase.id, base.user.id);
     const before = outboxRows().length;
@@ -505,7 +634,7 @@ describe("declining a Refund Request", () => {
     });
     approveRefundRequest(db, id, platformAdmin.id, null, NOW);
     const afterApproval = outboxRows().length;
-    expect(afterApproval).toBe(before + 1);
+    expect(afterApproval).toBe(before + 2);
 
     expect(declineRefundRequest(db, id, platformAdmin.id, "No.", NOW)).toMatchObject({
       ok: false,
