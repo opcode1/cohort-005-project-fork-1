@@ -7,6 +7,7 @@ const COMPLETE = {
   SUPRSEND_WORKSPACE_SECRET: "secret",
   SUPRSEND_PUBLIC_API_KEY: "public",
   SUPRSEND_SIGNING_KEY: "pem",
+  SUPRSEND_VAPID_KEY: "vapid",
   POSTMARK_SERVER_TOKEN: "token",
   APP_BASE_URL: "https://cadence.example",
 };
@@ -25,6 +26,14 @@ describe("assertProductionConfig", () => {
 
     expect(() => assertProductionConfig(env)).toThrow(
       "Cadence will not start in production without: SUPRSEND_SIGNING_KEY, POSTMARK_SERVER_TOKEN"
+    );
+  });
+
+  it("refuses to boot production without the web push VAPID key", () => {
+    expect(() =>
+      assertProductionConfig({ ...COMPLETE, SUPRSEND_VAPID_KEY: undefined })
+    ).toThrow(
+      "Cadence will not start in production without: SUPRSEND_VAPID_KEY"
     );
   });
 

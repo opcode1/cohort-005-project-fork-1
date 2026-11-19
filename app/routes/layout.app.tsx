@@ -237,7 +237,7 @@ function NotificationFeedSlot({ feed }: { feed: NotificationFeedSession }) {
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
 
-  const { publicApiKey, distinctId, userToken } = feed;
+  const { publicApiKey, vapidKey, distinctId, userToken } = feed;
   if (distinctId === null) return null;
   if (!hydrated || !publicApiKey || !userToken) {
     return <NotificationBell items={[]} />;
@@ -246,6 +246,7 @@ function NotificationFeedSlot({ feed }: { feed: NotificationFeedSession }) {
     <Suspense fallback={<NotificationBell items={[]} loading />}>
       <NotificationFeed
         publicApiKey={publicApiKey}
+        vapidKey={vapidKey}
         distinctId={distinctId}
         userToken={userToken}
       />

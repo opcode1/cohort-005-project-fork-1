@@ -116,9 +116,19 @@ describe("user tokens for the Notification Feed (secure mode)", () => {
   it("gives no token without a signing key, so the bell shows an empty feed", () => {
     expect(notificationFeedFor(7, {}, now)).toEqual({
       publicApiKey: null,
+      vapidKey: null,
       distinctId: "7",
       userToken: null,
     });
+  });
+
+  it("hands the browser the VAPID key it subscribes to web push with", () => {
+    const env = {
+      SUPRSEND_PUBLIC_API_KEY: "public",
+      SUPRSEND_VAPID_KEY: "vapid",
+    };
+
+    expect(notificationFeedFor(7, env, now).vapidKey).toBe("vapid");
   });
 
   it("gives no token, rather than breaking the page, when the signing key is unreadable", () => {
@@ -144,6 +154,7 @@ describe("user tokens for the Notification Feed (secure mode)", () => {
 
     expect(notificationFeedFor(null, env, now)).toEqual({
       publicApiKey: "public",
+      vapidKey: null,
       distinctId: null,
       userToken: null,
     });
