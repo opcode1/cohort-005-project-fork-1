@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { OutboxKind } from "~/db/schema";
 import { appBaseUrl } from "~/lib/config.server";
 import type { OutboxMessage, SendResult } from "~/lib/outbox.server";
+import { formatPrice } from "~/lib/utils";
 
 // ─── Notify ───
 // The one server-side place that knows about SuprSend (docs/adr/0013). Domain
@@ -44,6 +45,21 @@ export const NOTIFICATIONS = {
     notification: "Discussion Reply posted",
     recipient: "the person who asked the Discussion Question",
     pushEligible: true,
+  },
+  "purchase-made": {
+    notification: "Individual Purchase made",
+    recipient: "the course's Instructor",
+    pushEligible: false,
+  },
+  "team-licence-bought": {
+    notification: "Team Licence bought",
+    recipient: "the course's Instructor",
+    pushEligible: false,
+  },
+  "seat-claimed": {
+    notification: "Seat claimed",
+    recipient: "the Team Admin who bought the Team Licence",
+    pushEligible: false,
   },
 } as const;
 
@@ -195,6 +211,76 @@ export function replyPosted(
       excerpt: excerpt(reply.body),
     },
     linkToQuestion(reply, questionId)
+  );
+}
+
+// ─── Purchases and Seats ───
+
+/** A Purchase, with what a Notification about it shows. */
+export type CoursePurchase = {
+  id: number;
+  amountPaid: number;
+  courseId: number;
+  courseTitle: string;
+};
+
+function linkToInstructorCourse(courseId: number) {
+  return `/instructor/${courseId}`;
+}
+
+export function purchaseMade(
+  purchase: CoursePurchase,
+  buyer: Person,
+  instructor: Person
+): OutboxMessage {
+  return trigger(
+    "purchase-made",
+    "purchase",
+    purchase.id,
+    instructor,
+    {
+      course_title: purchase.courseTitle,
+      buyer_name: buyer.name,
+      amount: formatPrice(purchase.amountPaid),
+    },
+    linkToInstructorCourse(purchase.courseId)
+  );
+}
+
+export function teamLicenceBought(
+  purchase: CoursePurchase,
+  seatCount: number,
+  teamAdmin: Person,
+  instructor: Person
+): OutboxMessage {
+  return trigger(
+    "team-licence-bought",
+    "purchase",
+    purchase.id,
+    instructor,
+    {
+      course_title: purchase.courseTitle,
+      buyer_name: teamAdmin.name,
+      amount: formatPrice(purchase.amountPaid),
+      seat_count: seatCount,
+    },
+    linkToInstructorCourse(purchase.courseId)
+  );
+}
+
+export function seatClaimed(
+  seatId: number,
+  courseTitle: string,
+  claimant: Person,
+  teamAdmin: Person
+): OutboxMessage {
+  return trigger(
+    "seat-claimed",
+    "seat",
+    seatId,
+    teamAdmin,
+    { course_title: courseTitle, claimant_name: claimant.name },
+    "/team"
   );
 }
 

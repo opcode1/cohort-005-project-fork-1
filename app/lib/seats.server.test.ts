@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
 import { RefundStatus, UserRole } from "~/db/schema";
@@ -167,5 +167,84 @@ describe("claimSeat", () => {
       .all();
 
     expect(claimSeat(db, seat.code, base.user.id, null, NOW).ok).toBe(true);
+  });
+});
+
+// Rows written after buying the Team Licence in `beforeEach`.
+function newOutboxRows() {
+  return db
+    .select({
+      kind: schema.outbox.kind,
+      idempotencyKey: schema.outbox.idempotencyKey,
+      payload: schema.outbox.payload,
+      status: schema.outbox.status,
+    })
+    .from(schema.outbox)
+    .where(gt(schema.outbox.id, outboxIdBeforeClaim))
+    .orderBy(schema.outbox.id)
+    .all();
+}
+
+let outboxIdBeforeClaim: number;
+
+describe("claimSeat's Notifications and Confirmations", () => {
+  beforeEach(() => {
+    outboxIdBeforeClaim = db
+      .select({ max: sql<number>`coalesce(max(${schema.outbox.id}), 0)` })
+      .from(schema.outbox)
+      .get()!.max;
+  });
+
+  it("tells the Team Admin, links to the team page, and welcomes the claimant", () => {
+    claimSeat(db, code, base.user.id, "IN", NOW);
+    const seatId = seats()[0].id;
+
+    expect(newOutboxRows()).toEqual([
+      {
+        kind: "suprsend_trigger",
+        idempotencyKey: `seat-claimed:seat:${seatId}:user:${teamAdmin.id}`,
+        status: "pending",
+        payload: {
+          workflow: "seat-claimed",
+          recipient: {
+            distinct_id: String(teamAdmin.id),
+            $email: "tess@example.com",
+            name: "Tess",
+          },
+          data: {
+            course_title: "Test Course",
+            claimant_name: "Test User",
+          },
+          link: "/team",
+        },
+      },
+      {
+        kind: "email",
+        idempotencyKey: null,
+        status: "pending",
+        payload: {
+          to: "test@example.com",
+          subject: "Welcome to Test Course",
+          body: expect.stringContaining('You are enrolled in "Test Course"'),
+        },
+      },
+    ]);
+  });
+
+  it("tells no one when the Team Admin claims their own Seat, but still welcomes them", () => {
+    claimSeat(db, code, teamAdmin.id, "IN", NOW);
+
+    expect(newOutboxRows().map((row) => row.kind)).toEqual(["email"]);
+    expect(newOutboxRows()[0].payload).toMatchObject({
+      to: "tess@example.com",
+      subject: "Welcome to Test Course",
+    });
+  });
+
+  it("writes no rows when the claim is refused", () => {
+    expect(claimSeat(db, code, base.user.id, "US", NOW).ok).toBe(false);
+    expect(claimSeat(db, "nope", base.user.id, "IN", NOW).ok).toBe(false);
+
+    expect(newOutboxRows()).toEqual([]);
   });
 });

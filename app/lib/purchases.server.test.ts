@@ -180,3 +180,194 @@ describe("buyTeamLicence", () => {
     expect(purchasesOf(base.user.id)).toEqual([]);
   });
 });
+
+function outboxRows() {
+  return db
+    .select({
+      kind: schema.outbox.kind,
+      idempotencyKey: schema.outbox.idempotencyKey,
+      payload: schema.outbox.payload,
+      status: schema.outbox.status,
+    })
+    .from(schema.outbox)
+    .orderBy(schema.outbox.id)
+    .all();
+}
+
+function triggers() {
+  return outboxRows().filter((row) => row.kind === "suprsend_trigger");
+}
+
+function emails() {
+  return outboxRows().filter((row) => row.kind === "email");
+}
+
+describe("makeIndividualPurchase's Notifications and Confirmations", () => {
+  it("tells the course's Instructor about the Individual Purchase", () => {
+    const result = makeIndividualPurchase(
+      db,
+      base.user.id,
+      base.course.id,
+      4900,
+      null,
+      NOW
+    );
+    if (!result.ok) throw new Error(result.error);
+
+    expect(triggers()).toEqual([
+      {
+        kind: "suprsend_trigger",
+        idempotencyKey: `purchase-made:purchase:${result.purchaseId}:user:${base.instructor.id}`,
+        status: "pending",
+        payload: {
+          workflow: "purchase-made",
+          recipient: {
+            distinct_id: String(base.instructor.id),
+            $email: "instructor@example.com",
+            name: "Test Instructor",
+          },
+          data: {
+            course_title: "Test Course",
+            buyer_name: "Test User",
+            amount: "$49.00",
+          },
+          link: `/instructor/${base.course.id}`,
+        },
+      },
+    ]);
+  });
+
+  it("sends the buyer the Enrollment welcome, and no other email", () => {
+    makeIndividualPurchase(db, base.user.id, base.course.id, 4900, null, NOW);
+
+    expect(emails()).toEqual([
+      {
+        kind: "email",
+        idempotencyKey: null,
+        status: "pending",
+        payload: {
+          to: "test@example.com",
+          subject: "Welcome to Test Course",
+          body: expect.stringContaining('You are enrolled in "Test Course"'),
+        },
+      },
+    ]);
+  });
+
+  it("tells no one when the Instructor buys their own course, but still welcomes them", () => {
+    makeIndividualPurchase(
+      db,
+      base.instructor.id,
+      base.course.id,
+      4900,
+      null,
+      NOW
+    );
+
+    expect(triggers()).toEqual([]);
+    expect(emails().map((row) => row.payload)).toMatchObject([
+      { to: "instructor@example.com", subject: "Welcome to Test Course" },
+    ]);
+  });
+
+  it("welcomes a Student again when they re-enroll after a refund", () => {
+    const first = makeIndividualPurchase(
+      db,
+      base.user.id,
+      base.course.id,
+      4900,
+      null,
+      NOW
+    );
+    if (!first.ok) throw new Error(first.error);
+    // An approved Refund Request ends the Enrollment (docs/adr/0002).
+    db.delete(schema.enrollments)
+      .where(eq(schema.enrollments.userId, base.user.id))
+      .run();
+
+    makeIndividualPurchase(db, base.user.id, base.course.id, 4900, null, NOW);
+
+    expect(emails().map((row) => row.payload)).toMatchObject([
+      { to: "test@example.com", subject: "Welcome to Test Course" },
+      { to: "test@example.com", subject: "Welcome to Test Course" },
+    ]);
+  });
+
+  it("writes no rows when the buyer is already enrolled", () => {
+    makeIndividualPurchase(db, base.user.id, base.course.id, 4900, null, NOW);
+    const before = outboxRows();
+
+    makeIndividualPurchase(db, base.user.id, base.course.id, 4900, null, NOW);
+
+    expect(outboxRows()).toEqual(before);
+  });
+});
+
+describe("buyTeamLicence's Notifications and Confirmations", () => {
+  it("tells the course's Instructor about the Team Licence, with its Seat count", () => {
+    const result = buyTeamLicence(
+      db,
+      base.user.id,
+      base.course.id,
+      3 * 4900,
+      null,
+      3,
+      NOW
+    );
+    if (!result.ok) throw new Error(result.error);
+
+    expect(triggers()).toEqual([
+      {
+        kind: "suprsend_trigger",
+        idempotencyKey: `team-licence-bought:purchase:${result.purchaseId}:user:${base.instructor.id}`,
+        status: "pending",
+        payload: {
+          workflow: "team-licence-bought",
+          recipient: {
+            distinct_id: String(base.instructor.id),
+            $email: "instructor@example.com",
+            name: "Test Instructor",
+          },
+          data: {
+            course_title: "Test Course",
+            buyer_name: "Test User",
+            amount: "$147.00",
+            seat_count: 3,
+          },
+          link: `/instructor/${base.course.id}`,
+        },
+      },
+    ]);
+  });
+
+  it("confirms the Team Licence to the Team Admin, naming the course and Seats", () => {
+    buyTeamLicence(db, base.user.id, base.course.id, 3 * 4900, null, 3, NOW);
+
+    const [confirmation] = emails();
+    expect(emails()).toHaveLength(1);
+    expect(confirmation.payload).toMatchObject({
+      to: "test@example.com",
+      subject: "Your Team Licence for Test Course",
+    });
+    expect((confirmation.payload as { body: string }).body).toContain(
+      '3 Seats on "Test Course"'
+    );
+  });
+
+  it("says Seat, not Seats, for a Team Licence of one", () => {
+    buyTeamLicence(db, base.user.id, base.course.id, 4900, null, 1, NOW);
+
+    expect((emails()[0].payload as { body: string }).body).toContain(
+      '1 Seat on "Test Course"'
+    );
+  });
+
+  it("tells no one when the Instructor buys a Team Licence for their own course", () => {
+    buyTeamLicence(db, base.instructor.id, base.course.id, 4900, null, 1, NOW);
+
+    expect(triggers()).toEqual([]);
+    expect(emails().map((row) => row.payload)).toMatchObject([
+      { to: "instructor@example.com" },
+    ]);
+  });
+});

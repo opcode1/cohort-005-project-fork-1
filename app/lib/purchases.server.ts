@@ -10,7 +10,14 @@ import {
   teamMembers,
   teams,
   TeamMemberRole,
+  users,
 } from "~/db/schema";
+import {
+  enrollmentWelcome,
+  teamLicenceBoughtConfirmation,
+} from "~/lib/confirmations.server";
+import { purchaseMade, teamLicenceBought } from "~/lib/notify.server";
+import { enqueue, type OutboxMessage } from "~/lib/outbox.server";
 
 // ─── Purchases ───
 // Making an Individual Purchase and buying a Team Licence. See GLOSSARY.md for
@@ -31,8 +38,46 @@ const COURSE_NOT_FOUND = {
   error: "Course not found.",
 } as const;
 
+const BUYER_NOT_FOUND = {
+  ok: false,
+  status: 404,
+  error: "Buyer not found.",
+} as const;
+
 function getCourse(tx: Tx, courseId: number) {
   return tx.select().from(courses).where(eq(courses.id, courseId)).get();
+}
+
+type Course = NonNullable<ReturnType<typeof getCourse>>;
+type Purchase = typeof purchases.$inferSelect;
+type User = typeof users.$inferSelect;
+
+function getUser(tx: Tx, userId: number) {
+  return tx.select().from(users).where(eq(users.id, userId)).get();
+}
+
+/**
+ * The course's Instructor hears about each Purchase of it, unless they are
+ * the buyer.
+ */
+function tellInstructor(
+  tx: Tx,
+  course: Course,
+  buyer: User,
+  notification: (instructor: User) => OutboxMessage
+): OutboxMessage[] {
+  if (course.instructorId === buyer.id) return [];
+  const instructor = getUser(tx, course.instructorId);
+  return instructor ? [notification(instructor)] : [];
+}
+
+function coursePurchase(purchase: Purchase, course: Course) {
+  return {
+    id: purchase.id,
+    amountPaid: purchase.amountPaid,
+    courseId: course.id,
+    courseTitle: course.title,
+  };
 }
 
 function isEnrolled(tx: Tx, userId: number, courseId: number) {
@@ -80,7 +125,9 @@ export function makeIndividualPurchase(
 ): PurchaseResult {
   return db.transaction((tx): PurchaseResult => {
     const course = getCourse(tx, courseId);
+    const buyer = getUser(tx, buyerId);
     if (!course) return COURSE_NOT_FOUND;
+    if (!buyer) return BUYER_NOT_FOUND;
 
     if (isEnrolled(tx, buyerId, course.id)) {
       return {
@@ -105,6 +152,17 @@ export function makeIndividualPurchase(
         enrolledAt: now.toISOString(),
       })
       .run();
+
+    enqueue(
+      tx,
+      [
+        ...tellInstructor(tx, course, buyer, (instructor) =>
+          purchaseMade(coursePurchase(purchase, course), buyer, instructor)
+        ),
+        enrollmentWelcome(buyer, course),
+      ],
+      now
+    );
 
     return { ok: true, purchaseId: purchase.id };
   });
@@ -154,7 +212,9 @@ export function buyTeamLicence(
 ): PurchaseResult {
   return db.transaction((tx): PurchaseResult => {
     const course = getCourse(tx, courseId);
+    const buyer = getUser(tx, buyerId);
     if (!course) return COURSE_NOT_FOUND;
+    if (!buyer) return BUYER_NOT_FOUND;
 
     const purchase = recordPurchase(
       tx,
@@ -175,6 +235,22 @@ export function buyTeamLicence(
         }))
       )
       .run();
+
+    enqueue(
+      tx,
+      [
+        ...tellInstructor(tx, course, buyer, (instructor) =>
+          teamLicenceBought(
+            coursePurchase(purchase, course),
+            seatCount,
+            buyer,
+            instructor
+          )
+        ),
+        teamLicenceBoughtConfirmation(buyer, course, seatCount, amountPaid),
+      ],
+      now
+    );
 
     return { ok: true, purchaseId: purchase.id };
   });

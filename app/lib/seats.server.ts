@@ -1,7 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
-import { coupons, enrollments, purchases } from "~/db/schema";
+import { coupons, courses, enrollments, purchases, users } from "~/db/schema";
+import { enrollmentWelcome } from "~/lib/confirmations.server";
+import { seatClaimed } from "~/lib/notify.server";
+import { enqueue, type OutboxMessage } from "~/lib/outbox.server";
 import { getSeatAvailability } from "~/lib/refunds.server";
 
 // ─── Seats ───
@@ -11,6 +14,31 @@ import { getSeatAvailability } from "~/lib/refunds.server";
 // Database first, positional parameters (project convention).
 
 export type Db = BetterSQLite3Database<typeof schema>;
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+type User = typeof users.$inferSelect;
+type Purchase = typeof purchases.$inferSelect;
+
+function getUser(tx: Tx, userId: number) {
+  return tx.select().from(users).where(eq(users.id, userId)).get();
+}
+
+/**
+ * The Team Admin who bought the Team Licence hears about each Seat claimed
+ * on it, unless they claimed it themselves.
+ */
+function tellTeamAdmin(
+  tx: Tx,
+  teamLicence: Purchase | undefined,
+  seatId: number,
+  courseTitle: string,
+  claimant: User
+): OutboxMessage[] {
+  if (!teamLicence || teamLicence.userId === claimant.id) return [];
+  const teamAdmin = getUser(tx, teamLicence.userId);
+  return teamAdmin
+    ? [seatClaimed(seatId, courseTitle, claimant, teamAdmin)]
+    : [];
+}
 
 export const SEAT_ON_HOLD =
   "This seat can't be claimed right now. Ask the person who shared it with you.";
@@ -92,6 +120,23 @@ export function claimSeat(
       })
       .returning()
       .get();
+
+    const claimant = getUser(tx, claimantId);
+    const course = tx
+      .select({ title: courses.title })
+      .from(courses)
+      .where(eq(courses.id, seat.courseId))
+      .get();
+    if (claimant && course) {
+      enqueue(
+        tx,
+        [
+          ...tellTeamAdmin(tx, purchase, seat.id, course.title, claimant),
+          enrollmentWelcome(claimant, course),
+        ],
+        now
+      );
+    }
 
     return { ok: true, enrollmentId: enrollment.id, courseId: seat.courseId };
   });
