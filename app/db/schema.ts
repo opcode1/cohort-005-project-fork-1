@@ -406,6 +406,9 @@ export const outbox = sqliteTable(
       .default(OutboxStatus.Pending),
     attempts: integer("attempts").notNull().default(0),
     nextAttemptAt: text("next_attempt_at").notNull(),
+    // The 6 hours of retries count from here: when the row was saved, or
+    // when an operator last re-queued it.
+    retryWindowStartedAt: text("retry_window_started_at").notNull(),
     lastError: text("last_error"),
     createdAt: text("created_at").notNull(),
     sentAt: text("sent_at"),

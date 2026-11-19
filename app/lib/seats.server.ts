@@ -1,11 +1,11 @@
 import { and, eq } from "drizzle-orm";
-import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import * as schema from "~/db/schema";
-import { coupons, courses, enrollments, purchases, users } from "~/db/schema";
+import { coupons, courses, enrollments, purchases } from "~/db/schema";
+import type { Db, Tx } from "~/db/types";
 import { enrollmentWelcome } from "~/lib/confirmations.server";
 import { seatClaimed } from "~/lib/notify.server";
 import { enqueue, type OutboxMessage } from "~/lib/outbox.server";
 import { getSeatAvailability } from "~/lib/refunds.server";
+import { getUser, type User } from "~/lib/users.server";
 
 // ─── Seats ───
 // A Student claiming a Seat on a Team Licence. See GLOSSARY.md for Seat,
@@ -13,14 +13,7 @@ import { getSeatAvailability } from "~/lib/refunds.server";
 //
 // Database first, positional parameters (project convention).
 
-export type Db = BetterSQLite3Database<typeof schema>;
-type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
-type User = typeof users.$inferSelect;
 type Purchase = typeof purchases.$inferSelect;
-
-function getUser(tx: Tx, userId: number) {
-  return tx.select().from(users).where(eq(users.id, userId)).get();
-}
 
 /**
  * The Team Admin who bought the Team Licence hears about each Seat claimed

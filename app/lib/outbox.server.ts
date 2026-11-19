@@ -1,19 +1,21 @@
-import { and, asc, eq, lt, lte } from "drizzle-orm";
-import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import * as schema from "~/db/schema";
+import { and, asc, eq, lt, lte, ne, sql } from "drizzle-orm";
+import { z } from "zod";
 import { outbox, OutboxKind, OutboxStatus } from "~/db/schema";
+import type { Db, Queryable } from "~/db/types";
 import {
   defaultTransport,
   TransportError,
   type Email,
   type MailTransport,
 } from "~/lib/mailer.server";
+import { isWorkflowSlug } from "~/lib/notification-catalogue";
 import {
   defaultNotifyTransport,
   type NotifyTransport,
   type SuprsendTrigger,
   type SuprsendUserUpdate,
 } from "~/lib/notify.server";
+import { errorMessage } from "~/lib/utils";
 
 // ─── Outbox ───
 // Every message Cadence sends leaves through here (docs/adr/0016). A domain
@@ -22,9 +24,6 @@ import {
 // The dispatcher sends them after commit and retries any that fail.
 //
 // Database first, positional parameters (project convention).
-
-export type Db = BetterSQLite3Database<typeof schema>;
-type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /** One message to one recipient, with everything it needs to be sent. */
 export type OutboxMessage =
@@ -42,7 +41,7 @@ export type OutboxMessage =
  * Saves messages inside the caller's transaction, due at once, and wakes the
  * dispatcher once that transaction has committed.
  */
-export function enqueue(tx: Tx | Db, messages: OutboxMessage[], now: Date) {
+export function enqueue(tx: Queryable, messages: OutboxMessage[], now: Date) {
   if (messages.length === 0) return;
 
   tx.insert(outbox)
@@ -56,6 +55,7 @@ export function enqueue(tx: Tx | Db, messages: OutboxMessage[], now: Date) {
             : null,
         createdAt: now.toISOString(),
         nextAttemptAt: now.toISOString(),
+        retryWindowStartedAt: now.toISOString(),
       }))
     )
     .run();
@@ -64,6 +64,32 @@ export function enqueue(tx: Tx | Db, messages: OutboxMessage[], now: Date) {
   // caller's transaction has committed (or rolled back, and there is nothing
   // to send).
   setImmediate(wakeDispatcher);
+}
+
+/**
+ * Points every unsent SuprSend trigger to `userId` at their new email. Call
+ * it in the transaction that changes the email: a trigger saved before it
+ * still names the old address, and sent after the email swap it would add
+ * that address back in SuprSend (docs/adr/0015). Failed rows are rewritten
+ * too, since an operator may re-queue them.
+ */
+export function readdressUnsentTriggers(
+  tx: Queryable,
+  userId: number,
+  email: string
+) {
+  tx.update(outbox)
+    .set({
+      payload: sql`json_set(${outbox.payload}, '$.recipient."$email"', ${email})`,
+    })
+    .where(
+      and(
+        eq(outbox.kind, OutboxKind.SuprsendTrigger),
+        ne(outbox.status, OutboxStatus.Sent),
+        sql`json_extract(${outbox.payload}, '$.recipient.distinct_id') = ${String(userId)}`
+      )
+    )
+    .run();
 }
 
 // ─── Sending ───
@@ -94,26 +120,57 @@ function nextDueRow(db: Db, now: Date): OutboxRow | undefined {
     .get();
 }
 
-function toMessage(row: OutboxRow): OutboxMessage {
-  // The payload went in as the message's own, so it comes back out as one.
-  return (
-    row.kind === OutboxKind.SuprsendTrigger
-      ? {
-          kind: row.kind,
-          payload: row.payload,
-          idempotencyKey: row.idempotencyKey,
-        }
-      : { kind: row.kind, payload: row.payload }
-  ) as OutboxMessage;
+// The payload column is plain JSON, so a row is read back through the shape
+// `enqueue` wrote, not trusted to still have it.
+const outboxMessageSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal(OutboxKind.Email),
+    payload: z.object({
+      to: z.string(),
+      subject: z.string(),
+      body: z.string(),
+    }),
+  }),
+  z.object({
+    kind: z.literal(OutboxKind.SuprsendTrigger),
+    payload: z.object({
+      workflow: z.string().refine(isWorkflowSlug),
+      recipient: z.object({
+        distinct_id: z.string(),
+        $email: z.string(),
+        name: z.string(),
+      }),
+      data: z.record(z.union([z.string(), z.number()])),
+      link: z.string(),
+    }),
+    idempotencyKey: z.string(),
+  }),
+  z.object({
+    kind: z.literal(OutboxKind.SuprsendUserUpdate),
+    payload: z.object({
+      distinct_id: z.string(),
+      removeEmail: z.string(),
+      addEmail: z.string(),
+    }),
+  }),
+]);
+
+function toMessage(row: OutboxRow): OutboxMessage | null {
+  const parsed = outboxMessageSchema.safeParse(row);
+  return parsed.success ? parsed.data : null;
 }
 
 /**
  * Sends every message that is due at `now`, one at a time, oldest first, and
- * records how each one went.
+ * records how each one went. A row that can't be read as a message can never
+ * be sent, so it fails at once.
  */
 export async function drainOutbox(db: Db, sender: OutboxSender, now: Date) {
   for (let row = nextDueRow(db, now); row; row = nextDueRow(db, now)) {
-    const result = await sendWithTimeout(sender, toMessage(row));
+    const message = toMessage(row);
+    const result: SendResult = message
+      ? await sendWithTimeout(sender, message)
+      : { ok: false, status: 400, error: "The saved payload is unreadable" };
     record(db, row, result, now);
   }
 }
@@ -139,7 +196,7 @@ async function sendWithTimeout(
     .send(message, controller.signal)
     .catch((error: unknown): SendResult => ({
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     }));
 
   try {
@@ -180,7 +237,8 @@ function record(db: Db, row: OutboxRow, result: SendResult, now: Date) {
       ? result.error
       : `${result.status}: ${result.error}`;
 
-  const failingFor = now.getTime() - new Date(row.createdAt).getTime();
+  const failingFor =
+    now.getTime() - new Date(row.retryWindowStartedAt).getTime();
 
   if (!isPermanent(result) && failingFor < GIVE_UP_AFTER_MS) {
     const nextAttemptAt = new Date(now.getTime() + retryDelayMs(attempts));
@@ -204,8 +262,26 @@ const KEEP_SENT_FOR_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Deletes sent messages older than 30 days. Failed messages are kept, so an
- * operator can find them with SQL and re-queue them by setting `status` back
- * to `pending`.
+ * operator can find them with SQL and re-queue them.
+ *
+ * Operator steps, with `sqlite3` on the database file once the cause is
+ * fixed. Find the failed rows:
+ *
+ *   SELECT id, kind, idempotency_key, attempts, last_error, created_at
+ *   FROM outbox WHERE status = 'failed';
+ *
+ * Re-queue them, narrowing the WHERE to the rows you mean. Resetting
+ * `retry_window_started_at` gives each one a fresh 6 hours of retries; left
+ * alone, a re-queued row would fail again on its first retryable error.
+ * Re-sending is safe: a SuprSend trigger keeps its idempotency key.
+ *
+ *   UPDATE outbox
+ *   SET status = 'pending',
+ *       next_attempt_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+ *       retry_window_started_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+ *   WHERE status = 'failed';
+ *
+ * The dispatcher picks them up within 30 seconds.
  */
 export function cleanUpOutbox(db: Db, now: Date) {
   const cutoff = new Date(now.getTime() - KEEP_SENT_FOR_MS);
@@ -246,7 +322,7 @@ export function defaultSender(
               ok: false,
               status:
                 error instanceof TransportError ? error.status : undefined,
-              error: error instanceof Error ? error.message : String(error),
+              error: errorMessage(error),
             };
           }
       }

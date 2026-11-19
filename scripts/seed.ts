@@ -13,9 +13,10 @@ import {
   RefundStatus,
   QuestionType,
   TeamMemberRole,
-  OutboxKind,
   OutboxStatus,
 } from "../app/db/schema";
+import { refundRequestedConfirmation } from "../app/lib/confirmations.server";
+import type { Person } from "../app/lib/person";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2806,41 +2807,28 @@ This course is still in draft while the cluster examples are rewritten against t
   // already sent, so the dispatcher has nothing to send on boot.
 
   function sentRefundRequestedEmail(
-    buyer: { name: string; email: string },
-    courseTitle: string,
+    buyer: Person,
+    course: { title: string },
     amountPaid: number,
     requestedAt: string
   ) {
     return {
-      kind: OutboxKind.Email,
-      payload: {
-        to: buyer.email,
-        subject: `Refund requested — ${courseTitle}`,
-        body: [
-          `Hi ${buyer.name},`,
-          "",
-          `We have your refund request for "${courseTitle}".`,
-          `The refund is for $${(amountPaid / 100).toFixed(2)}, the amount you paid.`,
-          "",
-          "Our team reviews every refund request by hand. You do not need to do anything else — we will email you again when it is done.",
-          "",
-          "— The Cadence team",
-        ].join("\n"),
-      },
+      ...refundRequestedConfirmation(buyer, course, amountPaid),
       status: OutboxStatus.Sent,
       attempts: 1,
       createdAt: requestedAt,
       nextAttemptAt: requestedAt,
+      retryWindowStartedAt: requestedAt,
       sentAt: requestedAt,
     };
   }
 
   db.insert(schema.outbox)
     .values([
-      sentRefundRequestedEmail(liam, course1.title, 7900, daysAgo(4)),
+      sentRefundRequestedEmail(liam, course1, 7900, daysAgo(4)),
       sentRefundRequestedEmail(
         studentByEmail("marta.novak@student.dev"),
-        course3.title,
+        course3,
         novakLicence.purchase.amountPaid,
         daysAgo(1)
       ),

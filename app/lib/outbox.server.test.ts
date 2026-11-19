@@ -66,6 +66,18 @@ function onlyRow() {
   return row;
 }
 
+/** The re-queue an operator runs by hand (see outbox.server.ts), at `now`. */
+function requeueFailed(now: Date) {
+  db.update(schema.outbox)
+    .set({
+      status: OutboxStatus.Pending,
+      nextAttemptAt: now.toISOString(),
+      retryWindowStartedAt: now.toISOString(),
+    })
+    .where(eq(schema.outbox.status, OutboxStatus.Failed))
+    .run();
+}
+
 describe("draining the outbox", () => {
   it("marks a sent message as sent", async () => {
     enqueue(db, [email("liam@example.com")], CREATED);
@@ -110,6 +122,30 @@ describe("draining the outbox", () => {
       "question-asked:comment:4:user:2",
       null,
     ]);
+  });
+
+  it("fails a message at once, without sending it, when its saved payload can't be read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    db.insert(schema.outbox)
+      .values({
+        kind: OutboxKind.SuprsendTrigger,
+        payload: { workflow: "no-such-workflow" },
+        idempotencyKey: "no-such-workflow:comment:1:user:1",
+        createdAt: CREATED.toISOString(),
+        nextAttemptAt: CREATED.toISOString(),
+        retryWindowStartedAt: CREATED.toISOString(),
+      })
+      .run();
+    const { sender, messages } = fakeSender();
+
+    await drainOutbox(db, sender, at(SECOND));
+
+    expect(messages).toEqual([]);
+    expect(onlyRow()).toMatchObject({
+      status: OutboxStatus.Failed,
+      attempts: 1,
+      lastError: expect.stringContaining("payload"),
+    });
   });
 
   it.each([400, 404])("fails a message at once on a %i", async (status) => {
@@ -271,16 +307,33 @@ describe("draining the outbox", () => {
     );
     expect(onlyRow().status).toBe(OutboxStatus.Failed);
 
-    // What an operator runs by hand once the cause is fixed.
-    db.update(schema.outbox)
-      .set({ status: OutboxStatus.Pending })
-      .where(eq(schema.outbox.status, OutboxStatus.Failed))
-      .run();
+    requeueFailed(at(HOUR));
     const { sender, sent } = fakeSender({ ok: true });
     await drainOutbox(db, sender, at(HOUR));
 
     expect(sent).toEqual(["liam@example.com"]);
     expect(onlyRow().status).toBe(OutboxStatus.Sent);
+  });
+
+  it("gives a re-queued message a fresh 6 hours of retries", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    enqueue(db, [email("liam@example.com")], CREATED);
+    await drainOutbox(
+      db,
+      fakeSender({ ok: false, status: 404, error: "No such workflow" }).sender,
+      at(SECOND)
+    );
+
+    requeueFailed(at(10 * HOUR));
+    const { sender } = fakeSender(
+      { ok: false, status: 503, error: "Down" },
+      { ok: false, status: 503, error: "Down" }
+    );
+    await drainOutbox(db, sender, at(10 * HOUR));
+    expect(onlyRow().status).toBe(OutboxStatus.Pending);
+
+    await drainOutbox(db, sender, at(16 * HOUR));
+    expect(onlyRow().status).toBe(OutboxStatus.Failed);
   });
 
   it("leaves a message alone until it is due", async () => {

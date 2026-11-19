@@ -1,7 +1,6 @@
 import { eq } from "drizzle-orm";
-import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import * as schema from "~/db/schema";
-import { comments, courses, lessons, modules, users } from "~/db/schema";
+import { comments, courses, lessons, modules } from "~/db/schema";
+import type { Db, Tx } from "~/db/types";
 import { MAX_COMMENT_LENGTH, MIN_COMMENT_LENGTH } from "~/lib/comments";
 import {
   questionAsked,
@@ -9,15 +8,13 @@ import {
   type LessonComment,
 } from "~/lib/notify.server";
 import { enqueue, type OutboxMessage } from "~/lib/outbox.server";
+import { getUser } from "~/lib/users.server";
 
 // ─── Discussions ───
 // Posting a comment on a lesson, from the lesson page or the Instructor's
 // Questions page. See GLOSSARY.md for Discussion Question and Discussion Reply.
 //
 // Database first, positional parameters (project convention).
-
-export type Db = BetterSQLite3Database<typeof schema>;
-type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 export type PostCommentResult =
   | { ok: true; commentId: number }
@@ -44,10 +41,6 @@ type Comment = typeof comments.$inferSelect;
 
 function getComment(tx: Tx, commentId: number) {
   return tx.select().from(comments).where(eq(comments.id, commentId)).get();
-}
-
-function getUser(tx: Tx, userId: number) {
-  return tx.select().from(users).where(eq(users.id, userId)).get();
 }
 
 /**

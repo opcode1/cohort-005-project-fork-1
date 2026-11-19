@@ -1,17 +1,20 @@
-import { createPrivateKey, sign } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OutboxKind } from "~/db/schema";
 import { appBaseUrl } from "~/lib/config.server";
 import type { WorkflowSlug } from "~/lib/notification-catalogue";
 import type { OutboxMessage, SendResult } from "~/lib/outbox.server";
-import { formatPrice } from "~/lib/utils";
+import type { Person } from "~/lib/person";
+import type { PurchaseKind } from "~/lib/refunds.server";
+import { errorMessage, formatPrice } from "~/lib/utils";
 
 // ─── Notify ───
-// The one server-side place that knows about SuprSend (docs/adr/0013). Domain
-// functions call the builders below inside their transaction and `enqueue`
-// what they return; the outbox dispatcher hands the rows to the transport at
-// the bottom of this file. Routes never import this module.
+// The one server-side place that sends Notifications through SuprSend
+// (docs/adr/0013). Domain functions call the builders below inside their
+// transaction and `enqueue` what they return; the outbox dispatcher hands the
+// rows to the transport at the bottom of this file. Routes never import this
+// module (docs/adr/0016): the browser's Notification Feed session comes from
+// notification-feed.server.ts.
 
 // ─── Catalogue ───
 // The catalogue, and the recipe for adding a Notification, live in
@@ -43,8 +46,6 @@ export type SuprsendUserUpdate = {
   addEmail: string;
 };
 
-type Person = { id: number; name: string; email: string };
-
 function recipient(person: Person): Recipient {
   return {
     distinct_id: String(person.id),
@@ -53,10 +54,13 @@ function recipient(person: Person): Recipient {
   };
 }
 
+/** The domain records a Notification can be about. */
+type NotifiedRecord = "refund-request" | "comment" | "purchase" | "seat";
+
 // `<notification>:<record>:<id>:user:<recipientId>` (docs/adr/0016).
 function idempotencyKey(
   workflow: WorkflowSlug,
-  record: string,
+  record: NotifiedRecord,
   recordId: number,
   recipientId: number
 ) {
@@ -65,7 +69,7 @@ function idempotencyKey(
 
 function trigger(
   workflow: WorkflowSlug,
-  record: string,
+  record: NotifiedRecord,
   recordId: number,
   to: Person,
   data: SuprsendTrigger["data"],
@@ -76,6 +80,19 @@ function trigger(
     idempotencyKey: idempotencyKey(workflow, record, recordId, to.id),
     payload: { workflow, recipient: recipient(to), data, link },
   };
+}
+
+/** What every Notification about money paid for a course shows. */
+function paymentData(courseTitle: string, buyer: Person, amountPaid: number) {
+  return {
+    course_title: courseTitle,
+    buyer_name: buyer.name,
+    amount: formatPrice(amountPaid),
+  };
+}
+
+function linkToInstructorCourse(courseId: number) {
+  return `/instructor/${courseId}`;
 }
 
 // ─── Refund Requests ───
@@ -101,11 +118,7 @@ export function refundRaised(
         "refund-request",
         refundRequest.id,
         admin,
-        {
-          course_title: refundRequest.courseTitle,
-          buyer_name: buyer.name,
-          amount: formatPrice(refundRequest.amountPaid),
-        },
+        paymentData(refundRequest.courseTitle, buyer, refundRequest.amountPaid),
         "/admin/refunds"
       )
     );
@@ -114,7 +127,7 @@ export function refundRaised(
 /** A decided Refund Request, with what the Notifications about it show. */
 export type RefundDecisionNotice = RefundRequestNotice & {
   courseId: number;
-  purchaseKind: "individual_purchase" | "team_licence";
+  purchaseKind: PurchaseKind;
   note: string | null;
 };
 
@@ -132,19 +145,26 @@ function decisionData(decision: RefundDecisionNotice) {
   };
 }
 
-/** To the buyer, on feed, push and email. */
+/**
+ * To the buyer, on feed, push and email, unless they approved it themselves
+ * as a Platform Admin.
+ */
 export function refundApproved(
   decision: RefundDecisionNotice,
-  buyer: Person
-): OutboxMessage {
-  return trigger(
-    "refund-approved",
-    "refund-request",
-    decision.id,
-    buyer,
-    decisionData(decision),
-    linkForBuyer(decision)
-  );
+  buyer: Person,
+  actorId: number
+): OutboxMessage[] {
+  if (buyer.id === actorId) return [];
+  return [
+    trigger(
+      "refund-approved",
+      "refund-request",
+      decision.id,
+      buyer,
+      decisionData(decision),
+      linkForBuyer(decision)
+    ),
+  ];
 }
 
 /** To the course's Instructor, unless they decided it themselves. */
@@ -161,29 +181,32 @@ export function refundApprovedToInstructor(
       "refund-request",
       decision.id,
       instructor,
-      {
-        course_title: decision.courseTitle,
-        buyer_name: buyer.name,
-        amount: formatPrice(decision.amountPaid),
-      },
-      `/instructor/${decision.courseId}`
+      paymentData(decision.courseTitle, buyer, decision.amountPaid),
+      linkToInstructorCourse(decision.courseId)
     ),
   ];
 }
 
-/** To the buyer, on feed, push and email, with the Platform Admin's note. */
+/**
+ * To the buyer, on feed, push and email, with the Platform Admin's note,
+ * unless they declined it themselves.
+ */
 export function refundDeclined(
   decision: RefundDecisionNotice,
-  buyer: Person
-): OutboxMessage {
-  return trigger(
-    "refund-declined",
-    "refund-request",
-    decision.id,
-    buyer,
-    decisionData(decision),
-    linkForBuyer(decision)
-  );
+  buyer: Person,
+  actorId: number
+): OutboxMessage[] {
+  if (buyer.id === actorId) return [];
+  return [
+    trigger(
+      "refund-declined",
+      "refund-request",
+      decision.id,
+      buyer,
+      decisionData(decision),
+      linkForBuyer(decision)
+    ),
+  ];
 }
 
 // ─── Users ───
@@ -285,10 +308,6 @@ export type CoursePurchase = {
   courseTitle: string;
 };
 
-function linkToInstructorCourse(courseId: number) {
-  return `/instructor/${courseId}`;
-}
-
 export function purchaseMade(
   purchase: CoursePurchase,
   buyer: Person,
@@ -299,11 +318,7 @@ export function purchaseMade(
     "purchase",
     purchase.id,
     instructor,
-    {
-      course_title: purchase.courseTitle,
-      buyer_name: buyer.name,
-      amount: formatPrice(purchase.amountPaid),
-    },
+    paymentData(purchase.courseTitle, buyer, purchase.amountPaid),
     linkToInstructorCourse(purchase.courseId)
   );
 }
@@ -320,9 +335,7 @@ export function teamLicenceBought(
     purchase.id,
     instructor,
     {
-      course_title: purchase.courseTitle,
-      buyer_name: teamAdmin.name,
-      amount: formatPrice(purchase.amountPaid),
+      ...paymentData(purchase.courseTitle, teamAdmin, purchase.amountPaid),
       seat_count: seatCount,
     },
     linkToInstructorCourse(purchase.courseId)
@@ -343,88 +356,6 @@ export function seatClaimed(
     { course_title: courseTitle, claimant_name: claimant.name },
     "/team"
   );
-}
-
-// ─── Notification Feed tokens ───
-// Secure mode is on for the public key in every workspace (docs/adr/0015),
-// so the browser's feed needs a token signed for its user.
-
-const USER_TOKEN_LIFETIME_SECONDS = 60 * 60;
-
-function base64url(value: string | Buffer) {
-  return Buffer.from(value).toString("base64url");
-}
-
-/**
- * A 1-hour ES256 token that lets the browser read `userId`'s feed.
- * `signingKey` is the per-environment PEM, multi-line or on one line with
- * `\n` escapes.
- */
-export function mintUserToken(userId: number, signingKey: string, now: Date) {
-  const key = createPrivateKey(signingKey.replaceAll("\\n", "\n"));
-  const iat = Math.floor(now.getTime() / 1000);
-  const header = base64url(JSON.stringify({ alg: "ES256", typ: "JWT" }));
-  const payload = base64url(
-    JSON.stringify({
-      entity_type: "subscriber",
-      entity_id: String(userId),
-      iat,
-      exp: iat + USER_TOKEN_LIFETIME_SECONDS,
-    })
-  );
-  // JWS wants the raw r||s signature, not Node's default DER encoding.
-  const signature = sign("sha256", Buffer.from(`${header}.${payload}`), {
-    key,
-    dsaEncoding: "ieee-p1363",
-  });
-  return `${header}.${payload}.${base64url(signature)}`;
-}
-
-/** What the browser needs to open the signed-in person's feed. */
-export type NotificationFeedSession = {
-  publicApiKey: string | null;
-  // Public: the browser subscribes to web push with it.
-  vapidKey: string | null;
-  // Both null when nobody is signed in.
-  distinctId: string | null;
-  userToken: string | null;
-};
-
-export function notificationFeedFor(
-  userId: number | null,
-  env: Record<string, string | undefined> = process.env,
-  now = new Date()
-): NotificationFeedSession {
-  const publicApiKey = env.SUPRSEND_PUBLIC_API_KEY || null;
-  const vapidKey = env.SUPRSEND_VAPID_KEY || null;
-  if (userId === null) {
-    return { publicApiKey, vapidKey, distinctId: null, userToken: null };
-  }
-
-  return {
-    publicApiKey,
-    vapidKey,
-    distinctId: String(userId),
-    userToken: userTokenFor(userId, env.SUPRSEND_SIGNING_KEY, now),
-  };
-}
-
-// Without a usable key the bell shows an empty feed; it never breaks a page.
-function userTokenFor(
-  userId: number,
-  signingKey: string | undefined,
-  now: Date
-) {
-  if (!signingKey) return null;
-  try {
-    return mintUserToken(userId, signingKey, now);
-  } catch (error) {
-    // Name the setting, never its value.
-    console.error(
-      `SUPRSEND_SIGNING_KEY could not be read as a PEM private key: ${errorMessage(error)}`
-    );
-    return null;
-  }
 }
 
 // ─── Transports ───
@@ -483,10 +414,6 @@ export function notificationFileTransport(
 }
 
 type SuprsendKeys = { workspaceKey: string; workspaceSecret: string };
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * Sends through SuprSend's Node SDK. The SDK returns trigger failures instead
