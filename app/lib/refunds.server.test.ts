@@ -147,6 +147,20 @@ function raise(purchaseId: number, buyerId: number) {
   return result.refundRequestId;
 }
 
+function outboxRows() {
+  return db
+    .select({
+      kind: schema.outbox.kind,
+      payload: schema.outbox.payload,
+      status: schema.outbox.status,
+      createdAt: schema.outbox.createdAt,
+      nextAttemptAt: schema.outbox.nextAttemptAt,
+    })
+    .from(schema.outbox)
+    .orderBy(schema.outbox.id)
+    .all();
+}
+
 function getSeat(seatId: number) {
   const seat = db
     .select()
@@ -164,6 +178,40 @@ describe("raising a Refund Request", () => {
     const result = raiseRefundRequest(db, purchase.id, base.user.id, "Nope.", NOW);
 
     expect(result).toMatchObject({ ok: true, kind: "individual_purchase" });
+  });
+
+  it("saves a Refund requested email to the buyer, due at once", () => {
+    const purchase = buyForSelf(base.user.id);
+
+    const result = raiseRefundRequest(db, purchase.id, base.user.id, "Nope.", NOW);
+
+    expect(result).not.toHaveProperty("email");
+    expect(outboxRows()).toEqual([
+      {
+        kind: "email",
+        status: "pending",
+        createdAt: NOW.toISOString(),
+        nextAttemptAt: NOW.toISOString(),
+        payload: {
+          to: "test@example.com",
+          subject: "Refund requested — Test Course",
+          body: expect.stringContaining(
+            "The refund is for $79.00, the amount you paid."
+          ),
+        },
+      },
+    ]);
+  });
+
+  it("saves no email when the Refund Request is refused", () => {
+    const purchase = buyForSelf(base.user.id);
+    raise(purchase.id, base.user.id);
+    const before = outboxRows().length;
+
+    const result = raiseRefundRequest(db, purchase.id, base.user.id, "Again.", NOW);
+
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(outboxRows()).toHaveLength(before);
   });
 
   it("refuses anyone but the buyer", () => {
@@ -356,16 +404,44 @@ describe("approving a Refund Request", () => {
     });
   });
 
-  it("emails the buyer that the refund is on its way", () => {
+  it("saves an email to the buyer that the refund is on its way", () => {
     const purchase = buyForSelf(base.user.id);
     const id = raise(purchase.id, base.user.id);
 
     const result = approveRefundRequest(db, id, platformAdmin.id, null, NOW);
 
-    if (!result.ok) throw new Error(result.error);
-    expect(result.email.to).toBe("test@example.com");
-    expect(result.email.subject).toBe("Refund approved — Test Course");
-    expect(result.email.body).toContain("$79.00");
+    expect(result).toEqual({ ok: true });
+    expect(outboxRows().at(-1)).toEqual({
+      kind: "email",
+      status: "pending",
+      createdAt: NOW.toISOString(),
+      nextAttemptAt: NOW.toISOString(),
+      payload: {
+        to: "test@example.com",
+        subject: "Refund approved — Test Course",
+        body: expect.stringContaining(
+          "$79.00, the full amount you paid, is on its way back to you."
+        ),
+      },
+    });
+  });
+
+  it("saves no email when the approval is refused", () => {
+    const priya = addLearner("Priya");
+    const { purchase, seats } = buySeats(priya.id, 2);
+    const id = raise(purchase.id, priya.id);
+    claimSeat(seats[0].id, addLearner("Ben").id);
+    const before = outboxRows().length;
+
+    expect(approveRefundRequest(db, id, platformAdmin.id, null, NOW)).toMatchObject({
+      ok: false,
+      status: 409,
+    });
+    expect(approveRefundRequest(db, 9999, platformAdmin.id, null, NOW)).toMatchObject({
+      ok: false,
+      status: 404,
+    });
+    expect(outboxRows()).toHaveLength(before);
   });
 });
 
@@ -392,10 +468,50 @@ describe("declining a Refund Request", () => {
       NOW
     );
 
-    if (!result.ok) throw new Error(result.error);
-    expect(result.email.body).toContain("You finished the course.");
+    expect(result).toEqual({ ok: true });
     expect(isEnrolled(base.user.id)).toBe(true);
     expect(checkRefundRequest(db, purchase.id, base.user.id, NOW).ok).toBe(true);
+  });
+
+  it("saves an email to the buyer with the Platform Admin's note", () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+
+    declineRefundRequest(db, id, platformAdmin.id, "You finished the course.", NOW);
+
+    expect(outboxRows().at(-1)).toMatchObject({
+      kind: "email",
+      status: "pending",
+      payload: {
+        to: "test@example.com",
+        subject: "Refund declined — Test Course",
+        body: expect.stringContaining("You finished the course."),
+      },
+    });
+  });
+
+  it("saves no email when the decline is refused", () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+    const before = outboxRows().length;
+
+    expect(declineRefundRequest(db, id, platformAdmin.id, "  ", NOW)).toMatchObject({
+      ok: false,
+      status: 400,
+    });
+    expect(declineRefundRequest(db, 9999, platformAdmin.id, "No.", NOW)).toMatchObject({
+      ok: false,
+      status: 404,
+    });
+    approveRefundRequest(db, id, platformAdmin.id, null, NOW);
+    const afterApproval = outboxRows().length;
+    expect(afterApproval).toBe(before + 1);
+
+    expect(declineRefundRequest(db, id, platformAdmin.id, "No.", NOW)).toMatchObject({
+      ok: false,
+      status: 409,
+    });
+    expect(outboxRows()).toHaveLength(afterApproval);
   });
 
   it("frees a Team Licence's Seats again", () => {

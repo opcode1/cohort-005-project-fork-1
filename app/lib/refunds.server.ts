@@ -14,8 +14,11 @@ import {
   users,
   videoWatchEvents,
   LessonProgressStatus,
+  OutboxKind,
   RefundStatus,
 } from "~/db/schema";
+import type { Email } from "~/lib/mailer.server";
+import { enqueue } from "~/lib/outbox.server";
 import { formatPrice } from "~/lib/utils";
 import {
   REFUND_COMPLETION_LIMIT,
@@ -348,12 +351,13 @@ export function getRefundOffer(
   };
 }
 
-export type Email = { to: string; subject: string; body: string };
-
 export type RaiseResult =
-  | { ok: true; refundRequestId: number; kind: PurchaseKind; email: Email }
-  | Failure;
+  { ok: true; refundRequestId: number; kind: PurchaseKind } | Failure;
 
+/**
+ * Raises a Refund Request and, in the same transaction, saves the Refund
+ * requested Confirmation to the buyer for the outbox to send.
+ */
 export function raiseRefundRequest(
   db: Db,
   purchaseId: number,
@@ -361,51 +365,63 @@ export function raiseRefundRequest(
   reason: string,
   now: Date
 ): RaiseResult {
-  const check = checkRefundRequest(db, purchaseId, buyerId, now);
-  if (!check.ok) return check;
+  return db.transaction((tx): RaiseResult => {
+    const check = checkRefundRequest(tx, purchaseId, buyerId, now);
+    if (!check.ok) return check;
 
-  const { purchase } = check;
-  const buyer = db.select().from(users).where(eq(users.id, buyerId)).get();
-  const course = db
-    .select()
-    .from(courses)
-    .where(eq(courses.id, purchase.courseId))
-    .get();
+    const { purchase } = check;
+    const buyer = tx.select().from(users).where(eq(users.id, buyerId)).get();
+    const course = tx
+      .select()
+      .from(courses)
+      .where(eq(courses.id, purchase.courseId))
+      .get();
 
-  if (!buyer || !course) {
-    return { ok: false, status: 404, error: "Purchase not found." };
-  }
+    if (!buyer || !course) {
+      return { ok: false, status: 404, error: "Purchase not found." };
+    }
 
-  const refundRequest = db
-    .insert(refunds)
-    .values({
-      purchaseId: purchase.id,
-      status: RefundStatus.Open,
-      reason,
-      requestedAt: now.toISOString(),
-    })
-    .returning()
-    .get();
+    const refundRequest = tx
+      .insert(refunds)
+      .values({
+        purchaseId: purchase.id,
+        status: RefundStatus.Open,
+        reason,
+        requestedAt: now.toISOString(),
+      })
+      .returning()
+      .get();
 
-  return {
-    ok: true,
-    refundRequestId: refundRequest.id,
-    kind: kindOf(getSeats(db, purchase.id)),
-    email: {
-      to: buyer.email,
-      subject: `Refund requested — ${course.title}`,
-      body: [
-        `Hi ${buyer.name},`,
-        "",
-        `We have your refund request for "${course.title}".`,
-        `The refund is for ${formatPrice(purchase.amountPaid)}, the amount you paid.`,
-        "",
-        "Our team reviews every refund request by hand. You do not need to do anything else — we will email you again when it is done.",
-        "",
-        "— The Cadence team",
-      ].join("\n"),
-    },
-  };
+    enqueue(
+      tx,
+      [
+        {
+          kind: OutboxKind.Email,
+          payload: {
+            to: buyer.email,
+            subject: `Refund requested — ${course.title}`,
+            body: [
+              `Hi ${buyer.name},`,
+              "",
+              `We have your refund request for "${course.title}".`,
+              `The refund is for ${formatPrice(purchase.amountPaid)}, the amount you paid.`,
+              "",
+              "Our team reviews every refund request by hand. You do not need to do anything else — we will email you again when it is done.",
+              "",
+              "— The Cadence team",
+            ].join("\n"),
+          },
+        },
+      ],
+      now
+    );
+
+    return {
+      ok: true,
+      refundRequestId: refundRequest.id,
+      kind: kindOf(getSeats(tx, purchase.id)),
+    };
+  });
 }
 
 // ─── Listing Refund Requests ───
@@ -568,7 +584,7 @@ export function listTeamLicences(db: Queryable, buyerId: number, now: Date) {
 
 // ─── Deciding a Refund Request ───
 
-export type DecisionResult = { ok: true; email: Email } | Failure;
+export type DecisionResult = { ok: true } | Failure;
 
 function findOpenRefundRequest(
   tx: Queryable,
@@ -677,10 +693,9 @@ export function approveRefundRequest(
       .where(eq(refunds.id, refundRequestId))
       .run();
 
-    return {
-      ok: true,
-      email: buildDecisionEmail(tx, purchase, RefundStatus.Approved, note),
-    };
+    enqueueDecisionEmail(tx, purchase, RefundStatus.Approved, note, now);
+
+    return { ok: true };
   });
 }
 
@@ -720,19 +735,41 @@ export function declineRefundRequest(
       .where(eq(refunds.id, refundRequestId))
       .run();
 
-    return {
-      ok: true,
-      email: buildDecisionEmail(
-        tx,
-        found.purchase,
-        RefundStatus.Declined,
-        trimmedNote
-      ),
-    };
+    enqueueDecisionEmail(
+      tx,
+      found.purchase,
+      RefundStatus.Declined,
+      trimmedNote,
+      now
+    );
+
+    return { ok: true };
   });
 }
 
-/** The email the buyer gets once their Refund Request is decided. */
+/**
+ * Saves the email the buyer gets once their Refund Request is decided, in the
+ * deciding transaction.
+ */
+function enqueueDecisionEmail(
+  tx: Tx,
+  purchase: Purchase,
+  decision: RefundStatus.Approved | RefundStatus.Declined,
+  note: string | null,
+  now: Date
+) {
+  enqueue(
+    tx,
+    [
+      {
+        kind: OutboxKind.Email,
+        payload: buildDecisionEmail(tx, purchase, decision, note),
+      },
+    ],
+    now
+  );
+}
+
 function buildDecisionEmail(
   db: Queryable,
   purchase: Purchase,

@@ -5,6 +5,9 @@ import { join } from "node:path";
 // Postmark delivers every email when POSTMARK_SERVER_TOKEN is set. Without a
 // token (local dev, tests) each message is written to .outbox/ as a JSON file
 // instead, so it can be read without sending anything.
+//
+// Only the outbox dispatcher calls a transport (docs/adr/0016). Code that
+// causes an email enqueues it instead.
 
 export type Email = {
   to: string;
@@ -13,14 +16,24 @@ export type Email = {
 };
 
 export interface MailTransport {
-  send(email: Email): Promise<void>;
+  send(email: Email, signal?: AbortSignal): Promise<void>;
+}
+
+/** The email service answered, and refused the email with this status. */
+export class TransportError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+  }
 }
 
 const FROM_ADDRESS = "Cadence <hello@cadence.dev>";
 
 export function postmarkTransport(serverToken: string): MailTransport {
   return {
-    async send(email) {
+    async send(email, signal) {
       const response = await fetch("https://api.postmarkapp.com/email", {
         method: "POST",
         headers: {
@@ -35,11 +48,13 @@ export function postmarkTransport(serverToken: string): MailTransport {
           TextBody: email.body,
           MessageStream: "outbound",
         }),
+        signal,
       });
 
       if (!response.ok) {
-        throw new Error(
-          `Postmark rejected the email to ${email.to}: ${response.status}`
+        throw new TransportError(
+          `Postmark rejected the email to ${email.to}`,
+          response.status
         );
       }
     },
@@ -59,14 +74,7 @@ export function outboxTransport(directory: string): MailTransport {
   };
 }
 
-function defaultTransport(): MailTransport {
+export function defaultTransport(): MailTransport {
   const token = process.env.POSTMARK_SERVER_TOKEN;
   return token ? postmarkTransport(token) : outboxTransport(".outbox");
-}
-
-export async function sendEmail(
-  email: Email,
-  transport: MailTransport = defaultTransport()
-): Promise<void> {
-  await transport.send(email);
 }

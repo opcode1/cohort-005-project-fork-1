@@ -13,6 +13,8 @@ import {
   RefundStatus,
   QuestionType,
   TeamMemberRole,
+  OutboxKind,
+  OutboxStatus,
 } from "../app/db/schema";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -65,6 +67,7 @@ async function seed() {
 
   // Drop and recreate tables for a clean seed
   sqlite.exec(`
+    DROP TABLE IF EXISTS outbox;
     DROP TABLE IF EXISTS comments;
     DROP TABLE IF EXISTS course_ratings;
     DROP TABLE IF EXISTS video_watch_events;
@@ -2798,6 +2801,54 @@ This course is still in draft while the cluster examples are rewritten against t
 
   console.log("Created Marta's Refund Request on her Team Licence.");
 
+  // ─── Outbox ───
+  // The Refund requested Confirmations the two Refund Requests above caused,
+  // already sent, so the dispatcher has nothing to send on boot.
+
+  function sentRefundRequestedEmail(
+    buyer: { name: string; email: string },
+    courseTitle: string,
+    amountPaid: number,
+    requestedAt: string
+  ) {
+    return {
+      kind: OutboxKind.Email,
+      payload: {
+        to: buyer.email,
+        subject: `Refund requested — ${courseTitle}`,
+        body: [
+          `Hi ${buyer.name},`,
+          "",
+          `We have your refund request for "${courseTitle}".`,
+          `The refund is for $${(amountPaid / 100).toFixed(2)}, the amount you paid.`,
+          "",
+          "Our team reviews every refund request by hand. You do not need to do anything else — we will email you again when it is done.",
+          "",
+          "— The Cadence team",
+        ].join("\n"),
+      },
+      status: OutboxStatus.Sent,
+      attempts: 1,
+      createdAt: requestedAt,
+      nextAttemptAt: requestedAt,
+      sentAt: requestedAt,
+    };
+  }
+
+  db.insert(schema.outbox)
+    .values([
+      sentRefundRequestedEmail(liam, course1.title, 7900, daysAgo(4)),
+      sentRefundRequestedEmail(
+        studentByEmail("marta.novak@student.dev"),
+        course3.title,
+        novakLicence.purchase.amountPaid,
+        daysAgo(1)
+      ),
+    ])
+    .run();
+
+  console.log("Created the outbox's sent Refund requested emails.");
+
   // ─── Flush watch events ───
   // Batched: the heartbeat makes these by far the largest table, and one
   // statement per row would dominate the seed's runtime.
@@ -2851,6 +2902,9 @@ This course is still in draft while the cluster examples are rewritten against t
   );
   console.log(
     `  Teams: ${countRows(schema.teams)}, coupons: ${countRows(schema.coupons)} (${countRows(schema.coupons, isNotNull(schema.coupons.redeemedByUserId))} redeemed)`
+  );
+  console.log(
+    `  Outbox: ${countRows(schema.outbox)} (${countRows(schema.outbox, eq(schema.outbox.status, OutboxStatus.Sent))} sent)`
   );
 }
 
