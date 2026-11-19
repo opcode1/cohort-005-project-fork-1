@@ -10,6 +10,8 @@ const REQUIRED_IN_PRODUCTION = [
   "SUPRSEND_WORKSPACE_SECRET",
   "SUPRSEND_PUBLIC_API_KEY",
   "SUPRSEND_SIGNING_KEY",
+  // The browser subscribes to web push with it (public, not a secret).
+  "SUPRSEND_VAPID_KEY",
   "POSTMARK_SERVER_TOKEN",
   // Push needs absolute links, and they must not come from the request.
   "APP_BASE_URL",

@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OutboxKind } from "~/db/schema";
 import { appBaseUrl } from "~/lib/config.server";
+import type { WorkflowSlug } from "~/lib/notification-catalogue";
 import type { OutboxMessage, SendResult } from "~/lib/outbox.server";
 import { formatPrice } from "~/lib/utils";
 
@@ -13,80 +14,9 @@ import { formatPrice } from "~/lib/utils";
 // the bottom of this file. Routes never import this module.
 
 // ─── Catalogue ───
-// One SuprSend workflow per Notification. The feed is always a channel; push
-// is added only when the recipient must act or is waiting for an answer.
-//
-// Recipe: adding a Notification
-//
-// 1. Add a catalogue row below: event → recipient role → channels. The feed
-//    is always a channel. Add push only when the recipient must act or is
-//    waiting for an answer. Never notify the actor.
-// 2. Write the outbox rows. Add a builder here, and call it in the domain
-//    function's transaction: one `outbox` row per message per recipient,
-//    with a domain-derived idempotency key,
-//    `<workflow>:<record>:<id>:user:<recipientId>` (docs/adr/0016). Name the
-//    recipient inline as `{distinct_id, $email, name}` (docs/adr/0015).
-//    Resolve recipients inside the transaction and filter out the actor.
-//    Store links as app paths; the transport makes them absolute.
-//    Test it where the domain function is tested: assert the rows written.
-// 3. Set up SuprSend. Create the workflow and its template, with those
-//    channels, in Staging and Production, and **commit** both. A draft
-//    accepts triggers with a 202 and sends nothing; a missing workflow 404s
-//    and fails the row at once, so it must exist before the code ships.
-// 4. Push makes it ask-worthy. A Notification with push is push-eligible, so
-//    it can trigger the web push ask.
-
-export const NOTIFICATIONS = {
-  "refund-raised": {
-    notification: "Refund Request raised",
-    recipient: "every Platform Admin",
-    pushEligible: true,
-  },
-  // Also email: mandatory, no unsubscribe link (docs/adr/0014).
-  "refund-approved": {
-    notification: "Refund Request approved",
-    recipient: "the buyer (Student or Team Admin)",
-    pushEligible: true,
-  },
-  "refund-approved-instructor": {
-    notification: "Refund Request approved",
-    recipient: "the course's Instructor",
-    pushEligible: false,
-  },
-  // Also email: mandatory, no unsubscribe link (docs/adr/0014).
-  "refund-declined": {
-    notification: "Refund Request declined",
-    recipient: "the buyer (Student or Team Admin)",
-    pushEligible: true,
-  },
-  "question-asked": {
-    notification: "Discussion Question asked",
-    recipient: "the course's Instructor",
-    pushEligible: true,
-  },
-  "reply-posted": {
-    notification: "Discussion Reply posted",
-    recipient: "the person who asked the Discussion Question",
-    pushEligible: true,
-  },
-  "purchase-made": {
-    notification: "Individual Purchase made",
-    recipient: "the course's Instructor",
-    pushEligible: false,
-  },
-  "team-licence-bought": {
-    notification: "Team Licence bought",
-    recipient: "the course's Instructor",
-    pushEligible: false,
-  },
-  "seat-claimed": {
-    notification: "Seat claimed",
-    recipient: "the Team Admin who bought the Team Licence",
-    pushEligible: false,
-  },
-} as const;
-
-export type WorkflowSlug = keyof typeof NOTIFICATIONS;
+// The catalogue, and the recipe for adding a Notification, live in
+// notification-catalogue.ts, so the browser can read which Notifications are
+// push-eligible.
 
 // ─── Row payloads ───
 
@@ -453,6 +383,8 @@ export function mintUserToken(userId: number, signingKey: string, now: Date) {
 /** What the browser needs to open the signed-in person's feed. */
 export type NotificationFeedSession = {
   publicApiKey: string | null;
+  // Public: the browser subscribes to web push with it.
+  vapidKey: string | null;
   // Both null when nobody is signed in.
   distinctId: string | null;
   userToken: string | null;
@@ -464,12 +396,14 @@ export function notificationFeedFor(
   now = new Date()
 ): NotificationFeedSession {
   const publicApiKey = env.SUPRSEND_PUBLIC_API_KEY || null;
+  const vapidKey = env.SUPRSEND_VAPID_KEY || null;
   if (userId === null) {
-    return { publicApiKey, distinctId: null, userToken: null };
+    return { publicApiKey, vapidKey, distinctId: null, userToken: null };
   }
 
   return {
     publicApiKey,
+    vapidKey,
     distinctId: String(userId),
     userToken: userTokenFor(userId, env.SUPRSEND_SIGNING_KEY, now),
   };
