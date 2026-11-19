@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.suprsend.com/template/v2/variant_schema.json",
+  "id": "default",
+  "channel": "inbox",
+  "locale": "en",
+  "tenant_id": null,
+  "conditions": [],
+  "content": {
+    "$schema": "https://schema.suprsend.com/template/v2/channel/inbox_schema.json",
+    "templating_language": "handlebars",
+    "schema_version": "1.0",
+    "header": "New question in {{course_title}}",
+    "body": "{{asker_name}} asked a question on “{{lesson_title}}”.",
+    "action_url": "{{url}}",
+    "tags": [
+      "question-asked"
+    ]
+  }
+}

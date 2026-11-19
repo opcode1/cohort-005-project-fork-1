@@ -18,9 +18,10 @@
 //    Resolve recipients inside the transaction and filter out the actor.
 //    Store links as app paths; the transport makes them absolute.
 //    Test it where the domain function is tested: assert the rows written.
-// 3. Set up SuprSend. Create the workflow and its template, with those
-//    channels, in Staging and Production, and **commit** both. In the
-//    template's Inbox channel, add the workflow slug as a tag: that is how
+// 3. Set up SuprSend. Add the template and workflow, with those channels,
+//    under suprsend/ (see its README), then push and **commit** both to
+//    Staging and Production. In the template's Inbox variant, add the
+//    workflow slug as a tag: that is how
 //    the browser tells which feed item came from which catalogue row. A draft
 //    accepts triggers with a 202 and sends nothing; a missing workflow 404s
 //    and fails the row at once, so it must exist before the code ships.

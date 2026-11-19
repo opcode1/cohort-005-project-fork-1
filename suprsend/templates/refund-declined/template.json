@@ -1,0 +1,20 @@
+{
+  "slug": "refund-declined",
+  "name": "refund-declined",
+  "enabled_channels": [
+    "inbox",
+    "webpush",
+    "email"
+  ],
+  "variant_order": {
+    "inbox": [
+      "default"
+    ],
+    "webpush": [
+      "default"
+    ],
+    "email": [
+      "default"
+    ]
+  }
+}

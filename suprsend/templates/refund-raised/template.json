@@ -1,0 +1,16 @@
+{
+  "slug": "refund-raised",
+  "name": "refund-raised",
+  "enabled_channels": [
+    "inbox",
+    "webpush"
+  ],
+  "variant_order": {
+    "inbox": [
+      "default"
+    ],
+    "webpush": [
+      "default"
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "slug": "purchase-made",
+  "name": "purchase-made",
+  "enabled_channels": [
+    "inbox"
+  ],
+  "variant_order": {
+    "inbox": [
+      "default"
+    ]
+  }
+}

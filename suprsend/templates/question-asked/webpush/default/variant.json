@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.suprsend.com/template/v2/variant_schema.json",
+  "id": "default",
+  "channel": "webpush",
+  "locale": "en",
+  "tenant_id": null,
+  "conditions": [],
+  "content": {
+    "$schema": "https://schema.suprsend.com/template/v2/channel/webpush_schema.json",
+    "templating_language": "handlebars",
+    "header": "New question",
+    "body": "{{asker_name}} asked on “{{lesson_title}}” in {{course_title}}.",
+    "action_url": "{{url}}"
+  }
+}

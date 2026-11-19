@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.suprsend.com/workflow/v1/schema.json",
+  "slug": "question-asked",
+  "name": "question-asked",
+  "description": "Discussion Question asked. Triggered by Cadence's outbox; see app/lib/notification-catalogue.ts.",
+  "category": "system",
+  "trigger_type": "api",
+  "override_recipients_type": null,
+  "tree": {
+    "nodes": [
+      {
+        "name": "Send",
+        "node_type": "send_multi_channel",
+        "properties": {
+          "template": "question-asked",
+          "channels": [
+            "inbox",
+            "webpush"
+          ]
+        }
+      }
+    ]
+  }
+}

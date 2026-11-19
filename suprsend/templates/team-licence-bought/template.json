@@ -1,0 +1,12 @@
+{
+  "slug": "team-licence-bought",
+  "name": "team-licence-bought",
+  "enabled_channels": [
+    "inbox"
+  ],
+  "variant_order": {
+    "inbox": [
+      "default"
+    ]
+  }
+}
