@@ -116,3 +116,16 @@ _Avoid_: Inbox, Activity feed
 **Confirmation**:
 A message Cadence sends a person to acknowledge something they just did. It is never a Notification, because a person is never notified about their own action.
 _Avoid_: Receipt, Notification
+
+### Bookmarks and Notes
+
+**Bookmark**:
+A Student's flag on a Lesson, so they can find it again. One per Student per
+Lesson, and the Student is the only one who sees it.
+_Avoid_: Favourite, star, saved item
+
+**Note**:
+A Student's own writing about a Lesson, private to the Student who wrote it.
+One per Student per Lesson. A Note is not a Comment — a Comment is addressed
+to other people, a Note is addressed to nobody.
+_Avoid_: Annotation, scratchpad, memo

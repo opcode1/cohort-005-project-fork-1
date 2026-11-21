@@ -4,6 +4,7 @@ import { cn } from "~/lib/utils";
 import { UserRole } from "~/db/schema";
 import { UserAvatar } from "~/components/user-avatar";
 import {
+  Bookmark,
   BookOpen,
   ChartColumn,
   LayoutDashboard,
@@ -62,6 +63,13 @@ const navItems: NavItem[] = [
     to: "/dashboard",
     icon: <LayoutDashboard className="size-4" />,
     roles: [UserRole.Student],
+  },
+  {
+    label: "Saved",
+    to: "/saved",
+    icon: <Bookmark className="size-4" />,
+    // Anyone signed in can be a Student on someone else's Course.
+    roles: [UserRole.Student, UserRole.Instructor, UserRole.Admin],
   },
   {
     label: "My Courses",
