@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/saved";
 import { db } from "~/db";
-import { requireUserId } from "~/lib/access.server";
+import { getAccess, requireUserId } from "~/lib/access.server";
 import { listBookmarks, listNotes } from "~/lib/bookmarks-notes.server";
 import { Card, CardContent } from "~/components/ui/card";
 import { Bookmark, NotebookPen } from "lucide-react";
@@ -16,11 +16,27 @@ export function meta() {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const studentId = await requireUserId(request);
+  const bookmarks = listBookmarks(db, studentId);
+  const notes = listNotes(db, studentId);
+
+  // A row is listed only while its Course's content is open to the Student,
+  // the same check the Lesson page makes. After an approved Refund the rows
+  // are kept, but they drop out of here until access returns.
+  const courseIds = new Set(
+    [...bookmarks, ...notes].map((row) => row.courseId)
+  );
+  const openCourseIds = new Set<number>();
+  for (const courseId of courseIds) {
+    if ((await getAccess(request, courseId)).canViewContent) {
+      openCourseIds.add(courseId);
+    }
+  }
+  const isOpen = (row: { courseId: number }) => openCourseIds.has(row.courseId);
 
   // Only this Student's own rows, newest first.
   return {
-    savedBookmarks: listBookmarks(db, studentId),
-    savedNotes: listNotes(db, studentId),
+    savedBookmarks: bookmarks.filter(isOpen),
+    savedNotes: notes.filter(isOpen),
   };
 }
 

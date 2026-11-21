@@ -97,6 +97,7 @@ const lessonPlace = {
   lessonId: lessons.id,
   lessonTitle: lessons.title,
   moduleTitle: modules.title,
+  courseId: courses.id,
   courseTitle: courses.title,
   courseSlug: courses.slug,
 };
