@@ -1814,6 +1814,28 @@ This course is still in draft while the cluster examples are rewritten against t
 
   console.log(`Created ${countRows(schema.enrollments)} enrollments.`);
 
+  // ─── Bookmarks and Notes ───
+  // Emma, enrolled in course 1, has flagged two Lessons and written on one.
+
+  db.insert(schema.bookmarks)
+    .values([
+      { userId: students[0].id, lessonId: course1LessonIds[2], createdAt: daysAgo(12) },
+      { userId: students[0].id, lessonId: course1LessonIds[7], createdAt: daysAgo(4) },
+    ])
+    .run();
+  db.insert(schema.notes)
+    .values({
+      userId: students[0].id,
+      lessonId: course1LessonIds[7],
+      body: "Generics: the <T> is a placeholder the caller fills in.\nRewatch the constraint part.",
+      createdAt: daysAgo(4),
+      updatedAt: daysAgo(2),
+    })
+    .run();
+  console.log(
+    `Created ${countRows(schema.bookmarks)} bookmarks and ${countRows(schema.notes)} notes.`
+  );
+
   // ─── Course Ratings ───
   // Star ratings from enrolled students only. Not everyone rates.
   // Course 1 averages 4.3 (4 ratings), course 2 averages 4.5 (2 ratings).
