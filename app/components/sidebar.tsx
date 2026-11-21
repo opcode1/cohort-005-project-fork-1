@@ -68,7 +68,8 @@ const navItems: NavItem[] = [
     label: "Saved",
     to: "/saved",
     icon: <Bookmark className="size-4" />,
-    roles: [UserRole.Student],
+    // Anyone signed in can be a Student on someone else's Course.
+    roles: [UserRole.Student, UserRole.Instructor, UserRole.Admin],
   },
   {
     label: "My Courses",

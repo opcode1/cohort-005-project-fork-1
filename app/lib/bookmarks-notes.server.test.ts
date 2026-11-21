@@ -4,6 +4,7 @@ import * as schema from "~/db/schema";
 import { UserRole } from "~/db/schema";
 import { approveRefundRequest, raiseRefundRequest } from "./refunds.server";
 import {
+  canBookmarkAndNote,
   getNote,
   isBookmarked,
   listBookmarks,
@@ -119,11 +120,19 @@ describe("Notes", () => {
     });
   });
 
-  it("refuses an empty Note", () => {
-    expect(saveNote(db, base.user.id, lessonIds[0], "   ", NOW)).toEqual({
-      ok: false,
-      error: "Write something before saving your note.",
+  it("deletes the Note when it is saved empty", () => {
+    saveNote(db, base.user.id, lessonIds[0], "Soon gone", NOW);
+
+    expect(saveNote(db, base.user.id, lessonIds[0], "   ", LATER)).toEqual({
+      ok: true,
     });
+    expect(getNote(db, base.user.id, lessonIds[0])).toBeUndefined();
+    expect(listNotes(db, base.user.id)).toEqual([]);
+  });
+
+  it("saving an empty box with no Note changes nothing", () => {
+    expect(saveNote(db, base.user.id, lessonIds[0], "", NOW)).toEqual({ ok: true });
+    expect(getNote(db, base.user.id, lessonIds[0])).toBeUndefined();
   });
 
   it("keeps a Note as plain text, exactly as typed", () => {
@@ -197,5 +206,18 @@ describe("an approved Refund", () => {
 
     expect(isBookmarked(db, base.user.id, lessonIds[0])).toBe(true);
     expect(getNote(db, base.user.id, lessonIds[0])?.body).toBe("Keep me");
+  });
+});
+
+// Bookmarks and Notes belong to Students taking the Course: access through
+// the person's own Enrollment, not through being its Instructor or an admin.
+describe("who can bookmark and write Notes", () => {
+  it("is a Student whose Enrollment gives them the Course's content", () => {
+    expect(canBookmarkAndNote({ enrolled: true, pppBlocked: false })).toBe(true);
+  });
+
+  it("is not staff without an Enrollment, nor a Student blocked by regional pricing", () => {
+    expect(canBookmarkAndNote({ enrolled: false, pppBlocked: false })).toBe(false);
+    expect(canBookmarkAndNote({ enrolled: true, pppBlocked: true })).toBe(false);
   });
 });

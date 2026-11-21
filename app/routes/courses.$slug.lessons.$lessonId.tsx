@@ -55,6 +55,7 @@ import {
 } from "lucide-react";
 import { cn, formatDuration, formatRelativeTime } from "~/lib/utils";
 import {
+  canBookmarkAndNote,
   getNote,
   isBookmarked,
   MAX_NOTE_LENGTH,
@@ -754,9 +755,10 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     ? await renderThread(getLessonThread(lessonId))
     : [];
 
-  // The Student's own Bookmark and Note on this Lesson. A signed-out visitor,
-  // or anyone without content access, gets neither.
-  const canSave = canViewContent && currentUserId !== null;
+  // The Student's own Bookmark and Note on this Lesson. Only a Student taking
+  // the Course gets them: not a signed-out visitor, and not staff whose
+  // access comes from running the Course.
+  const canSave = currentUserId !== null && canBookmarkAndNote(access);
   const bookmarked = canSave && isBookmarked(db, currentUserId, lessonId);
   const note = canSave ? getNote(db, currentUserId, lessonId) : undefined;
 
@@ -941,9 +943,15 @@ export async function action({ params, request }: Route.ActionArgs) {
   }
 
   // Bookmarks and Notes take the same content-access bar as the discussion,
-  // checked here because loader guards don't protect actions.
+  // checked here because loader guards don't protect actions, and only for a
+  // Student taking the Course.
   if (intent === "toggle-bookmark" || intent === "save-note") {
-    await requireContentAccess(request, course.id);
+    const access = await requireContentAccess(request, course.id);
+    if (!canBookmarkAndNote(access)) {
+      throw data("Bookmarks and Notes are for Students taking this course.", {
+        status: 403,
+      });
+    }
     const lesson = getLessonById(lessonId);
     if (!lesson || getModuleById(lesson.moduleId)?.courseId !== course.id) {
       throw data("Lesson not found in this course", { status: 404 });
@@ -1394,7 +1402,8 @@ function LessonNote({
                   suppressHydrationWarning
                   className="text-sm text-muted-foreground"
                 >
-                  Last edited {formatRelativeTime(note.updatedAt)}
+                  Last edited {formatRelativeTime(note.updatedAt)}. Clear the
+                  box and save to delete it.
                 </span>
               )
             )}

@@ -2,6 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { bookmarks, courses, lessons, modules, notes } from "~/db/schema";
 import type { Db } from "~/db/types";
+import type { Access } from "~/lib/access.server";
 
 // ─── Bookmarks and Notes ───
 // What a Student attaches to a Lesson for themselves. See GLOSSARY.md: a Note
@@ -13,14 +14,26 @@ import type { Db } from "~/db/types";
 
 export const MAX_NOTE_LENGTH = 2000;
 
-/** A Note body as typed: plain text, trimmed, never rendered as Markdown. */
+/**
+ * A Note body as typed: plain text, trimmed, never rendered as Markdown. An
+ * empty body means "no Note".
+ */
 export const noteBodySchema = z
   .string()
   .trim()
-  .min(1, "Write something before saving your note.")
   .max(MAX_NOTE_LENGTH, "A note can be at most 2,000 characters.");
 
 export type SaveNoteResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Bookmarks and Notes belong to Students taking the Course: access through
+ * their own Enrollment, not through being its Instructor or a Platform Admin.
+ */
+export function canBookmarkAndNote(
+  access: Pick<Access, "enrolled" | "pppBlocked">
+) {
+  return access.enrolled && !access.pppBlocked;
+}
 
 export function isBookmarked(db: Db, studentId: number, lessonId: number) {
   return !!db
@@ -62,6 +75,7 @@ export function getNote(db: Db, studentId: number, lessonId: number) {
 /**
  * Creates the Student's Note on a Lesson, or replaces its body. Either way
  * `updatedAt`, the "last edited" time, becomes `now`; `createdAt` never moves.
+ * Saving an empty body deletes the Note.
  */
 export function saveNote(
   db: Db,
@@ -73,6 +87,13 @@ export function saveNote(
   const parsed = noteBodySchema.safeParse(body);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0].message };
+  }
+
+  if (parsed.data.length === 0) {
+    db.delete(notes)
+      .where(and(eq(notes.userId, studentId), eq(notes.lessonId, lessonId)))
+      .run();
+    return { ok: true };
   }
 
   const at = now.toISOString();
