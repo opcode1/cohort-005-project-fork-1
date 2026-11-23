@@ -13,6 +13,7 @@ Do these checks in this order before you report a change to `app/` as complete:
 | `tsc` reports every `./+types/*` import missing | Typegen has not run. Use `npm run typecheck`, which runs `react-router typegen` first.                 |
 | After `npm run db:seed`, a Notification never arrives, or a SuprSend Staging feed shows old items | Expected. Ids repeat after a reseed, so idempotency keys repeat: SuprSend drops a trigger whose key it saw in the last 24 hours, and Staging feeds keep items from earlier seeds. |
 | A web push never arrives (SuprSend's log: "Computing channels to notify on: Inbox"), or arrives for the previous DevUI user | The DevUI switch moves this browser's push between users, and can leave it attached to the previous one; logout detaches it correctly. Test push with the recipient signed in on their own window and the actor in a private window. |
+| `npm run reset` waits at a menu, or `main` is N ahead / M behind `origin/main` after one | `reset` moves the current branch to a lesson checkpoint. To add a lesson to your own work, use `npm run cherry-pick <slug>`: it asks nothing and keeps your commits. |
 
 ## Agent skills
 
