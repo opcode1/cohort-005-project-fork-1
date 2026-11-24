@@ -3,11 +3,10 @@ import { Link, redirect, useFetcher } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
 import type { Route } from "./+types/instructor.new";
-import { identity } from "~/lib/identity.server";
+import { requireInstructor } from "~/lib/access.server";
 import { parseFormData } from "~/lib/validation";
-import { UserRole } from "~/db/schema";
 import { db } from "~/db";
-import { users, categories, courses, CourseStatus } from "~/db/schema";
+import { categories, courses, CourseStatus } from "~/db/schema";
 import { eq } from "drizzle-orm";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
@@ -23,10 +22,6 @@ import {
 } from "~/components/ui/select";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import { data, isRouteErrorResponse } from "react-router";
-
-function getUserById(id: number) {
-  return db.select().from(users).where(eq(users.id, id)).get();
-}
 
 function getAllCategories() {
   return db.select().from(categories).orderBy(categories.name).all();
@@ -88,21 +83,7 @@ export function meta() {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const currentUserId = await identity.currentUserId(request);
-
-  if (!currentUserId) {
-    throw data("Select a user from the DevUI panel to create a course.", {
-      status: 401,
-    });
-  }
-
-  const user = getUserById(currentUserId);
-
-  if (!user || user.role !== UserRole.Instructor) {
-    throw data("Only instructors can create courses.", {
-      status: 403,
-    });
-  }
+  const { id: currentUserId } = await requireInstructor(db, request);
 
   const categories = getAllCategories();
 
@@ -110,17 +91,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const currentUserId = await identity.currentUserId(request);
-
-  if (!currentUserId) {
-    throw data("You must be logged in to create a course.", { status: 401 });
-  }
-
-  const user = getUserById(currentUserId);
-
-  if (!user || user.role !== UserRole.Instructor) {
-    throw data("Only instructors can create courses.", { status: 403 });
-  }
+  const { id: currentUserId } = await requireInstructor(db, request);
 
   const formData = await request.formData();
   const parsed = parseFormData(formData, newCourseSchema);

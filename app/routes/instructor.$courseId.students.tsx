@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/instructor.$courseId.students";
-import { identity } from "~/lib/identity.server";
-import { UserRole } from "~/db/schema";
+import { requireStaff } from "~/lib/access.server";
 import { isLapsed } from "~/lib/enrollments";
 import { Card, CardContent } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
@@ -186,40 +185,17 @@ export function meta({ loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ params, request }: Route.LoaderArgs) {
-  const currentUserId = await identity.currentUserId(request);
-
-  if (!currentUserId) {
-    throw data("Select a user from the DevUI panel to view student roster.", {
-      status: 401,
-    });
-  }
-
-  const user = getUserById(currentUserId);
-
-  if (
-    !user ||
-    (user.role !== UserRole.Instructor && user.role !== UserRole.Admin)
-  ) {
-    throw data("Only instructors and admins can access this page.", {
-      status: 403,
-    });
-  }
-
   const courseId = parseInt(params.courseId, 10);
   if (isNaN(courseId)) {
     throw data("Invalid course ID.", { status: 400 });
   }
 
+  await requireStaff(db, request, courseId);
+
   const course = getCourseById(courseId);
 
   if (!course) {
     throw data("Course not found.", { status: 404 });
-  }
-
-  if (course.instructorId !== currentUserId && user.role !== UserRole.Admin) {
-    throw data("You can only view students for your own courses.", {
-      status: 403,
-    });
   }
 
   // Get all enrolled students
