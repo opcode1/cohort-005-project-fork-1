@@ -704,7 +704,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     throw data("Lesson not found in this course", { status: 404 });
   }
 
-  const access = await getAccess(request, course.id);
+  const access = await getAccess(db, request, course.id);
   const currentUserId = access.userId;
   const enrolled = access.enrolled;
   let lessonStatus: string | null = null;
@@ -885,7 +885,7 @@ export async function action({ params, request }: Route.ActionArgs) {
     intent === "edit-comment" ||
     intent === "delete-comment"
   ) {
-    const access = await requireContentAccess(request, course.id);
+    const access = await requireContentAccess(db, request, course.id);
 
     try {
       if (intent === "create-comment") {
@@ -946,7 +946,7 @@ export async function action({ params, request }: Route.ActionArgs) {
   // checked here because loader guards don't protect actions, and only for a
   // Student taking the Course.
   if (intent === "toggle-bookmark" || intent === "save-note") {
-    const access = await requireContentAccess(request, course.id);
+    const access = await requireContentAccess(db, request, course.id);
     if (!canBookmarkAndNote(access)) {
       throw data("Bookmarks and Notes are for Students taking this course.", {
         status: 403,

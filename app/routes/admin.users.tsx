@@ -3,7 +3,7 @@ import { useFetcher } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
 import type { Route } from "./+types/admin.users";
-import { identity } from "~/lib/identity.server";
+import { requireAdmin } from "~/lib/access.server";
 import { parseFormData } from "~/lib/validation";
 import { updateUserDetails } from "~/lib/users.server";
 import { UserRole, users } from "~/db/schema";
@@ -40,10 +40,6 @@ function getAllUsers() {
   return db.select().from(users).all();
 }
 
-function getUserById(id: number) {
-  return db.select().from(users).where(eq(users.id, id)).get();
-}
-
 function updateUserRole(id: number, role: UserRole) {
   return db
     .update(users)
@@ -61,21 +57,7 @@ export function meta() {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const currentUserId = await identity.currentUserId(request);
-
-  if (!currentUserId) {
-    throw data("Select a user from the DevUI panel to manage users.", {
-      status: 401,
-    });
-  }
-
-  const currentUser = getUserById(currentUserId);
-
-  if (!currentUser || currentUser.role !== UserRole.Admin) {
-    throw data("Only admins can access this page.", {
-      status: 403,
-    });
-  }
+  await requireAdmin(db, request);
 
   const users = getAllUsers();
 
@@ -83,16 +65,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const currentUserId = await identity.currentUserId(request);
-
-  if (!currentUserId) {
-    throw data("You must be logged in.", { status: 401 });
-  }
-
-  const currentUser = getUserById(currentUserId);
-  if (!currentUser || currentUser.role !== UserRole.Admin) {
-    throw data("Only admins can manage users.", { status: 403 });
-  }
+  await requireAdmin(db, request);
 
   const formData = await request.formData();
   const parsed = parseFormData(formData, adminUserActionSchema);

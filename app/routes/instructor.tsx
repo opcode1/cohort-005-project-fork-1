@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/instructor";
-import { identity } from "~/lib/identity.server";
+import { requireInstructor } from "~/lib/access.server";
 import {
   Card,
   CardContent,
@@ -18,14 +18,10 @@ import {
 } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
-import { CourseStatus, UserRole } from "~/db/schema";
+import { CourseStatus } from "~/db/schema";
 import { db } from "~/db";
-import { users, courses, modules, lessons, enrollments } from "~/db/schema";
+import { courses, modules, lessons, enrollments } from "~/db/schema";
 import { eq, or, sql } from "drizzle-orm";
-
-function getUserById(id: number) {
-  return db.select().from(users).where(eq(users.id, id)).get();
-}
 
 function getCoursesByInstructor(instructorId: number) {
   return db
@@ -71,21 +67,7 @@ export function meta() {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const currentUserId = await identity.currentUserId(request);
-
-  if (!currentUserId) {
-    throw data("Select a user from the DevUI panel to view your courses.", {
-      status: 401,
-    });
-  }
-
-  const user = getUserById(currentUserId);
-
-  if (!user || user.role !== UserRole.Instructor) {
-    throw data("Only instructors can access this page.", {
-      status: 403,
-    });
-  }
+  const { id: currentUserId } = await requireInstructor(db, request);
 
   const instructorCourses = getCoursesByInstructor(currentUserId);
 

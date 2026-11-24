@@ -31,7 +31,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   );
   const openCourseIds = new Set<number>();
   for (const courseId of courseIds) {
-    if (canBookmarkAndNote(await getAccess(request, courseId))) {
+    if (canBookmarkAndNote(await getAccess(db, request, courseId))) {
       openCourseIds.add(courseId);
     }
   }
