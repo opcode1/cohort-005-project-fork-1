@@ -3,7 +3,7 @@ import { Link, useFetcher, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
 import type { Route } from "./+types/courses.$slug";
-import { getCurrentUserId } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import { db } from "~/db";
 import {
   courses,
@@ -44,7 +44,6 @@ import { Textarea } from "~/components/ui/textarea";
 import { data, isRouteErrorResponse } from "react-router";
 import { formatDuration, formatPrice } from "~/lib/utils";
 import { renderMarkdown } from "~/lib/markdown.server";
-import { resolveCountry } from "~/lib/country.server";
 import {
   calculatePppPrice,
   getCountryTierInfo,
@@ -388,7 +387,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   }
 
   const lessonCount = getLessonCountForCourse(course.id);
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
 
   let enrolled = false;
   let progress = 0;
@@ -425,7 +424,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     ? (findRating(currentUserId, course.id)?.rating ?? null)
     : null;
 
-  const country = await resolveCountry(request);
+  const country = await identity.country(request);
   const pppPrice = courseWithDetails.pppEnabled
     ? calculatePppPrice(courseWithDetails.price, country)
     : courseWithDetails.price;
@@ -451,7 +450,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 // Enrollment is handled via the purchase confirmation page — this action only
 // records star ratings.
 export async function action({ params, request }: Route.ActionArgs) {
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
 
   if (!currentUserId) {
     throw data("You must be logged in to rate a course.", { status: 401 });

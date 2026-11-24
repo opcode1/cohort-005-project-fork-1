@@ -1,6 +1,6 @@
 import { data } from "react-router";
 import type { Route } from "./+types/api.notification-token";
-import { getCurrentUserId } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import { notificationFeedFor } from "~/lib/notification-feed.server";
 import { FEED_USER_HEADER } from "~/lib/notification-feed";
 
@@ -9,7 +9,7 @@ import { FEED_USER_HEADER } from "~/lib/notification-feed";
 // If that user changed in another tab, this tab's feed must stop rather than
 // read someone else's Notifications, so a mismatch is a 401.
 export async function loader({ request }: Route.LoaderArgs) {
-  const userId = await getCurrentUserId(request);
+  const userId = await identity.currentUserId(request);
   const tabUser = request.headers.get(FEED_USER_HEADER);
   if (userId === null || tabUser !== String(userId)) {
     throw data("This tab is not showing the signed-in user", { status: 401 });

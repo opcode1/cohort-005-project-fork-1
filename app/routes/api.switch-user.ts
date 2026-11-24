@@ -1,7 +1,7 @@
 import { redirect } from "react-router";
 import { z } from "zod";
 import type { Route } from "./+types/api.switch-user";
-import { setCurrentUserId } from "~/lib/session";
+import { identity, safeRedirect } from "~/lib/identity.server";
 import { parseFormData } from "~/lib/validation";
 
 const switchUserSchema = z.object({
@@ -16,9 +16,9 @@ export async function action({ request, url }: Route.ActionArgs) {
     throw new Response("Invalid user ID", { status: 400 });
   }
 
-  const cookie = await setCurrentUserId(request, parsed.data.userId);
+  const cookie = await identity.switchUser(request, parsed.data.userId);
 
-  return redirect(url.searchParams.get("redirectTo") ?? "/", {
+  return redirect(safeRedirect(url.searchParams.get("redirectTo"), "/"), {
     headers: { "Set-Cookie": cookie },
   });
 }

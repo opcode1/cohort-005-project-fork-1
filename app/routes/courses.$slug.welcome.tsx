@@ -10,7 +10,7 @@ import {
   enrollments,
 } from "~/db/schema";
 import { eq, and, or } from "drizzle-orm";
-import { getCurrentUserId } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { PartyPopper, MessageCircle, PlayCircle } from "lucide-react";
@@ -104,7 +104,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     throw data("Course not found.", { status: 404 });
   }
 
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
   if (!currentUserId) {
     throw redirect(`/courses/${slug}`);
   }

@@ -3,7 +3,7 @@ import { useFetcher, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
 import type { Route } from "./+types/admin.refunds";
-import { getCurrentUserId } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import { parseFormData } from "~/lib/validation";
 import { RefundStatus, UserRole, users } from "~/db/schema";
 import { db } from "~/db";
@@ -53,7 +53,7 @@ function getUserById(id: number) {
 
 /** Only a Platform Admin decides Refund Requests. */
 async function requirePlatformAdmin(request: Request) {
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
 
   if (!currentUserId) {
     throw data("Select a user from the DevUI panel to review refunds.", {

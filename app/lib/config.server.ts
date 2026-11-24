@@ -15,6 +15,8 @@ const REQUIRED_IN_PRODUCTION = [
   "POSTMARK_SERVER_TOKEN",
   // Push needs absolute links, and they must not come from the request.
   "APP_BASE_URL",
+  // Signs the session cookie. Without it the secret is the one in the code.
+  "SESSION_SECRET",
 ] as const;
 
 /** Throws, naming what is missing, when production lacks a required key. */

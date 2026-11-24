@@ -2,7 +2,7 @@ import { Form, Link, useActionData, useNavigation, useSearchParams } from "react
 import { redirect, data } from "react-router";
 import { z } from "zod";
 import type { Route } from "./+types/login";
-import { setCurrentUserId, getCurrentUserId } from "~/lib/session";
+import { identity, safeRedirect } from "~/lib/identity.server";
 import { parseFormData } from "~/lib/validation";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -28,10 +28,9 @@ export function meta() {
 }
 
 export async function loader({ request, url }: Route.LoaderArgs) {
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
   if (currentUserId) {
-    const redirectTo = url.searchParams.get("redirectTo");
-    const destination = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/courses";
+    const destination = safeRedirect(url.searchParams.get("redirectTo"), "/courses");
     throw redirect(destination);
   }
   return {};
@@ -61,10 +60,9 @@ export async function action({ request, url }: Route.ActionArgs) {
     );
   }
 
-  const redirectTo = url.searchParams.get("redirectTo");
-  const destination = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/courses";
+  const destination = safeRedirect(url.searchParams.get("redirectTo"), "/courses");
 
-  const cookie = await setCurrentUserId(request, user.id);
+  const cookie = await identity.signIn(request, user.id);
   throw redirect(destination, {
     headers: { "Set-Cookie": cookie },
   });
