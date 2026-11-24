@@ -20,9 +20,8 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { AlertTriangle, BookOpen, Search } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
 import { UserAvatar } from "~/components/user-avatar";
-import { getCurrentUserId } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import { formatPrice } from "~/lib/utils";
-import { resolveCountry } from "~/lib/country.server";
 import { calculatePppPrice } from "~/lib/ppp";
 import { StarRating } from "~/components/star-rating";
 
@@ -291,8 +290,8 @@ export async function loader({ request, url }: Route.LoaderArgs) {
     0
   );
 
-  const currentUserId = await getCurrentUserId(request);
-  const country = await resolveCountry(request);
+  const currentUserId = await identity.currentUserId(request);
+  const country = await identity.country(request);
 
   // Build a map of courseId -> progress for enrolled courses
   const progressMap = new Map<

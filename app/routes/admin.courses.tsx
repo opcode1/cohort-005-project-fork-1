@@ -3,7 +3,7 @@ import { useFetcher } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
 import type { Route } from "./+types/admin.courses";
-import { getCurrentUserId } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import { parseFormData } from "~/lib/validation";
 import {
   UserRole,
@@ -90,7 +90,7 @@ export function meta() {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
 
   if (!currentUserId) {
     throw data("Select a user from the DevUI panel to manage courses.", {
@@ -118,7 +118,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
 
   if (!currentUserId) {
     throw data("You must be logged in.", { status: 401 });

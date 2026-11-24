@@ -3,7 +3,7 @@ import { redirect, data } from "react-router";
 import { z } from "zod";
 import type { Route } from "./+types/signup";
 import { UserRole, users } from "~/db/schema";
-import { setCurrentUserId, getCurrentUserId } from "~/lib/session";
+import { identity, safeRedirect } from "~/lib/identity.server";
 import { parseFormData } from "~/lib/validation";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -29,10 +29,9 @@ export function meta() {
 }
 
 export async function loader({ request, url }: Route.LoaderArgs) {
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
   if (currentUserId) {
-    const redirectTo = url.searchParams.get("redirectTo");
-    const destination = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/courses";
+    const destination = safeRedirect(url.searchParams.get("redirectTo"), "/courses");
     throw redirect(destination);
   }
   return {};
@@ -57,8 +56,7 @@ export async function action({ request, url }: Route.ActionArgs) {
 
   const { name, email } = parsed.data;
 
-  const redirectTo = url.searchParams.get("redirectTo");
-  const destination = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/courses";
+  const destination = safeRedirect(url.searchParams.get("redirectTo"), "/courses");
 
   // If email already exists, silently log them in
   const existingUser = db
@@ -67,7 +65,7 @@ export async function action({ request, url }: Route.ActionArgs) {
     .where(eq(users.email, email))
     .get();
   if (existingUser) {
-    const cookie = await setCurrentUserId(request, existingUser.id);
+    const cookie = await identity.signIn(request, existingUser.id);
     throw redirect(destination, {
       headers: { "Set-Cookie": cookie },
     });
@@ -79,7 +77,7 @@ export async function action({ request, url }: Route.ActionArgs) {
     .values({ name, email, role: UserRole.Student, avatarUrl: null })
     .returning()
     .get();
-  const cookie = await setCurrentUserId(request, newUser.id);
+  const cookie = await identity.signIn(request, newUser.id);
   throw redirect(destination, {
     headers: { "Set-Cookie": cookie },
   });

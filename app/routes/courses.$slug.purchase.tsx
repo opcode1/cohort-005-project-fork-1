@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import type { Route } from "./+types/courses.$slug.purchase";
-import { getCurrentUserId } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import { db } from "~/db";
 import {
   courses,
@@ -29,7 +29,6 @@ import { CourseImage } from "~/components/course-image";
 import { UserAvatar } from "~/components/user-avatar";
 import { data } from "react-router";
 import { formatDuration, formatPrice } from "~/lib/utils";
-import { resolveCountry } from "~/lib/country.server";
 import { calculatePppPrice, getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
 import { parseFormData, parseParams } from "~/lib/validation";
 import { buyTeamLicence, makeIndividualPurchase } from "~/lib/purchases.server";
@@ -169,7 +168,7 @@ export async function loader({ params, request, url }: Route.LoaderArgs) {
     throw data("Course not found.", { status: 404 });
   }
 
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
   if (!currentUserId) {
     throw redirect(
       `/signup?redirectTo=${encodeURIComponent(`/courses/${slug}/purchase`)}`
@@ -198,7 +197,7 @@ export async function loader({ params, request, url }: Route.LoaderArgs) {
     0
   );
 
-  const country = await resolveCountry(request);
+  const country = await identity.country(request);
   const pppPrice = courseWithDetails.pppEnabled
     ? calculatePppPrice(courseWithDetails.price, country)
     : courseWithDetails.price;
@@ -228,7 +227,7 @@ export async function action({ params, request }: Route.ActionArgs) {
     throw data("Course not found.", { status: 404 });
   }
 
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
   if (!currentUserId) {
     throw data("You must be logged in.", { status: 401 });
   }
@@ -240,7 +239,7 @@ export async function action({ params, request }: Route.ActionArgs) {
     throw data("Invalid action.", { status: 400 });
   }
 
-  const country = await resolveCountry(request);
+  const country = await identity.country(request);
   const pppPrice = course.pppEnabled
     ? calculatePppPrice(course.price, country)
     : course.price;

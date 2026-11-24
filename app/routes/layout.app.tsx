@@ -5,7 +5,7 @@ import { Sidebar } from "~/components/sidebar";
 import { DevUI } from "~/components/dev-ui";
 import { NotificationBell } from "~/components/notification-drawer";
 import { Toaster } from "sonner";
-import { getCurrentUserId, getDevCountry } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import {
   notificationFeedFor,
   type NotificationFeedSession,
@@ -179,9 +179,9 @@ function getRecentlyProgressedCourses(userId: number, limit: number = 3) {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const users = getAllUsers();
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
   const currentUser = currentUserId ? getUserById(currentUserId) : null;
-  const devCountry = await getDevCountry(request);
+  const devCountry = await identity.devCountry(request);
   const countryTierInfo = getCountryTierInfo(devCountry);
 
   const recentCourses = currentUserId
@@ -205,7 +205,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     : [];
 
   return {
-    users: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
+    // The DevUI's user switch lists everyone, so only send it with dev tools.
+    devTools: identity.devTools,
+    users: identity.devTools
+      ? users.map((u) => ({ id: u.id, name: u.name, role: u.role }))
+      : [],
     currentUser: currentUser
       ? {
           id: currentUser.id,
@@ -256,6 +260,7 @@ function NotificationFeedSlot({ feed }: { feed: NotificationFeedSession }) {
 
 export default function AppLayout({ loaderData }: Route.ComponentProps) {
   const {
+    devTools,
     users,
     currentUser,
     recentCourses,
@@ -277,13 +282,15 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
         <Outlet />
       </main>
       <NotificationFeedSlot feed={notificationFeed} />
-      <DevUI
-        users={users}
-        currentUser={currentUser}
-        devCountry={devCountry}
-        countryTierInfo={countryTierInfo}
-        countries={countries}
-      />
+      {devTools && (
+        <DevUI
+          users={users}
+          currentUser={currentUser}
+          devCountry={devCountry}
+          countryTierInfo={countryTierInfo}
+          countries={countries}
+        />
+      )}
       <Toaster position="bottom-right" richColors closeButton />
     </div>
   );

@@ -3,7 +3,7 @@ import { useFetcher } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
 import type { Route } from "./+types/settings";
-import { getCurrentUserId } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import { parseFormData } from "~/lib/validation";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
@@ -31,7 +31,7 @@ export function meta() {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
 
   if (!currentUserId) {
     throw data("Select a user from the DevUI panel to edit your details.", {
@@ -64,7 +64,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
 
   if (!currentUserId) {
     throw data("You must be logged in.", { status: 401 });

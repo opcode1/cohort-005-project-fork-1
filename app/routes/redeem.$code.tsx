@@ -3,8 +3,7 @@ import { useEffect } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import type { Route } from "./+types/redeem.$code";
-import { getCurrentUserId } from "~/lib/session";
-import { resolveCountry } from "~/lib/country.server";
+import { identity } from "~/lib/identity.server";
 import { parseParams, parseFormData } from "~/lib/validation";
 import { getSeatAvailability } from "~/lib/refunds.server";
 import { claimSeat, SEAT_ON_HOLD, SEAT_REFUNDED } from "~/lib/seats.server";
@@ -60,7 +59,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     throw data("Coupon not found.", { status: 404 });
   }
 
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
   if (!currentUserId) {
     throw redirect(
       `/login?redirectTo=${encodeURIComponent(`/redeem/${code}`)}`
@@ -85,7 +84,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   // Check country mismatch upfront so we can show a clear message
   let countryMismatch = false;
   if (!alreadyRedeemed && !alreadyEnrolled) {
-    const userCountry = await resolveCountry(request);
+    const userCountry = await identity.country(request);
     const purchase = db
       .select()
       .from(purchases)
@@ -109,7 +108,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 export async function action({ params, request }: Route.ActionArgs) {
   const { code } = parseParams(params, redeemParamsSchema);
 
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
   if (!currentUserId) {
     throw data("You must be logged in.", { status: 401 });
   }
@@ -121,7 +120,7 @@ export async function action({ params, request }: Route.ActionArgs) {
     throw data("Invalid action.", { status: 400 });
   }
 
-  const userCountry = await resolveCountry(request);
+  const userCountry = await identity.country(request);
   const result = claimSeat(db, code, currentUserId, userCountry, new Date());
 
   if (!result.ok) {

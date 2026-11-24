@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/courses.$slug.$moduleId";
-import { getCurrentUserId } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import { db } from "~/db";
 import {
   categories,
@@ -186,7 +186,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     throw data("Module not found in this course", { status: 404 });
   }
 
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
 
   let enrolled = false;
   let lessonProgressMap: Record<number, string> = {};

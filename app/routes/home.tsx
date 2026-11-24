@@ -7,7 +7,7 @@ import { CourseStatus } from "~/db/schema";
 import { BookOpen, GraduationCap, Users, ArrowRight, User, Moon, Sun } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
 import { DevUI } from "~/components/dev-ui";
-import { getCurrentUserId, getDevCountry } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import { getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
 import { eq, like, and, or, sql } from "drizzle-orm";
 import { db } from "~/db";
@@ -119,16 +119,20 @@ export async function loader({ request }: Route.LoaderArgs) {
   }));
   const categories = getAllCategories();
   const users = getAllUsers();
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
   const currentUser = currentUserId ? getUserById(currentUserId) : null;
-  const devCountry = await getDevCountry(request);
+  const devCountry = await identity.devCountry(request);
   const countryTierInfo = getCountryTierInfo(devCountry);
 
   return {
     featuredCourses: featured,
     totalCourses: courses.length,
     totalCategories: categories.length,
-    users: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
+    // The DevUI's user switch lists everyone, so only send it with dev tools.
+    devTools: identity.devTools,
+    users: identity.devTools
+      ? users.map((u) => ({ id: u.id, name: u.name, role: u.role }))
+      : [],
     currentUser: currentUser
       ? { id: currentUser.id, name: currentUser.name, role: currentUser.role }
       : null,
@@ -139,7 +143,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { featuredCourses, totalCourses, totalCategories, users, currentUser, devCountry, countryTierInfo, countries } = loaderData;
+  const { featuredCourses, totalCourses, totalCategories, devTools, users, currentUser, devCountry, countryTierInfo, countries } = loaderData;
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
@@ -301,13 +305,15 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </div>
       </footer>
 
-      <DevUI
-        users={users}
-        currentUser={currentUser}
-        devCountry={devCountry}
-        countryTierInfo={countryTierInfo}
-        countries={countries}
-      />
+      {devTools && (
+        <DevUI
+          users={users}
+          currentUser={currentUser}
+          devCountry={devCountry}
+          countryTierInfo={countryTierInfo}
+          countries={countries}
+        />
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { data } from "react-router";
 import { z } from "zod";
 import type { Route } from "./+types/api.video-tracking";
-import { getCurrentUserId } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import { parseJsonBody } from "~/lib/validation";
 import { db } from "~/db";
 import { videoWatchEvents } from "~/db/schema";
@@ -13,7 +13,7 @@ const videoTrackingSchema = z.object({
 });
 
 export async function action({ request }: Route.ActionArgs) {
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
   if (!currentUserId) {
     throw data("Unauthorized", { status: 401 });
   }

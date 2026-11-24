@@ -8,8 +8,7 @@ import {
   enrollments,
   purchases,
 } from "~/db/schema";
-import { getCurrentUserId } from "~/lib/session";
-import { resolveCountry } from "~/lib/country.server";
+import { identity } from "~/lib/identity.server";
 import { checkPppAccess } from "~/lib/ppp";
 
 function getUserById(id: number) {
@@ -87,7 +86,7 @@ export async function getAccess(
   request: Request,
   courseId: number
 ): Promise<Access> {
-  const userId = await getCurrentUserId(request);
+  const userId = await identity.currentUserId(request);
   if (!userId) return SIGNED_OUT;
 
   const user = getUserById(userId);
@@ -108,7 +107,7 @@ export async function getAccess(
 
   if (enrolled && !isStaff && course) {
     const purchase = findPurchase(userId, courseId);
-    const currentCountry = await resolveCountry(request);
+    const currentCountry = await identity.country(request);
     ppp = checkPppAccess(
       course.price,
       course.pppEnabled,
@@ -135,7 +134,7 @@ export async function getAccess(
  * Throws 401 unless someone is signed in. Returns their user id.
  */
 export async function requireUserId(request: Request): Promise<number> {
-  const userId = await getCurrentUserId(request);
+  const userId = await identity.currentUserId(request);
   if (!userId) {
     throw data("Select a user from the DevUI panel.", { status: 401 });
   }

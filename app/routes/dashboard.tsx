@@ -10,7 +10,7 @@ import {
   LessonProgressStatus,
 } from "~/db/schema";
 import { eq, and, or, sql } from "drizzle-orm";
-import { getCurrentUserId } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -189,7 +189,7 @@ export function meta() {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
 
   if (!currentUserId) {
     throw data("Select a user from the DevUI panel to view your dashboard.", {

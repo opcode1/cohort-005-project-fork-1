@@ -10,6 +10,7 @@ const COMPLETE = {
   SUPRSEND_VAPID_KEY: "vapid",
   POSTMARK_SERVER_TOKEN: "token",
   APP_BASE_URL: "https://cadence.example",
+  SESSION_SECRET: "a-long-random-string",
 };
 
 describe("assertProductionConfig", () => {
@@ -35,6 +36,12 @@ describe("assertProductionConfig", () => {
     ).toThrow(
       "Cadence will not start in production without: SUPRSEND_VAPID_KEY"
     );
+  });
+
+  it("refuses to boot production without a session cookie secret", () => {
+    expect(() =>
+      assertProductionConfig({ ...COMPLETE, SESSION_SECRET: undefined })
+    ).toThrow("Cadence will not start in production without: SESSION_SECRET");
   });
 
   it("lets development boot with no keys at all", () => {

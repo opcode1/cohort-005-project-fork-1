@@ -8,7 +8,7 @@ import {
   type DropResult,
 } from "@hello-pangea/dnd";
 import type { Route } from "./+types/instructor.$courseId";
-import { getCurrentUserId } from "~/lib/session";
+import { identity } from "~/lib/identity.server";
 import { CourseStatus, UserRole } from "~/db/schema";
 import { db } from "~/db";
 import {
@@ -551,7 +551,7 @@ export function meta({ loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ params, request }: Route.LoaderArgs) {
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
 
   if (!currentUserId) {
     throw data("Select a user from the DevUI panel to manage courses.", {
@@ -643,7 +643,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 }
 
 export async function action({ params, request }: Route.ActionArgs) {
-  const currentUserId = await getCurrentUserId(request);
+  const currentUserId = await identity.currentUserId(request);
 
   if (!currentUserId) {
     throw data("You must be logged in.", { status: 401 });
