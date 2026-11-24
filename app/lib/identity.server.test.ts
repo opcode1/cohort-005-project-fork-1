@@ -162,6 +162,8 @@ describe("safeRedirect", () => {
     ["a tab the browser strips", "/\t/evil.example/"],
     ["a script URL", "javascript:alert(1)"],
     ["a relative path", "courses"],
+    ["a URL the browser cannot parse", "//["],
+    ["a host with a bad port", "//evil.example:bad"],
     ["nothing", null],
   ])("falls back for %s", (_, target) => {
     expect(safeRedirect(target, "/courses")).toBe("/courses");

@@ -112,9 +112,10 @@ export function safeRedirect(target: string | null, fallback: string) {
 
   // Parse it as a browser would: "//host", "/\\host" and "/<tab>/host" all
   // leave this site.
+  // A value the browser cannot parse goes nowhere useful either.
   const base = "http://cadence.invalid";
-  const url = new URL(target, base);
-  return url.origin === base ? target : fallback;
+  if (!URL.canParse(target, base)) return fallback;
+  return new URL(target, base).origin === base ? target : fallback;
 }
 
 /** This server's identity, configured from its environment. */
